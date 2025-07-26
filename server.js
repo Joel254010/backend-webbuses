@@ -11,7 +11,8 @@ conectarMongoDB();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '30mb' })); // ✅ Aumentado para aceitar imagens grandes
+app.use(express.urlencoded({ extended: true, limit: '30mb' })); // ✅ Essencial para formulários
 
 // Rotas da API
 app.use('/api/anuncios', anuncioRoutes);
