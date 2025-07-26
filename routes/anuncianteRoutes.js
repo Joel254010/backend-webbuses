@@ -4,6 +4,6 @@ import { cadastrarAnunciante } from '../controllers/anuncianteController.js';
 
 const router = express.Router();
 
-router.post('/', cadastrarAnunciante); // POST /api/anunciantes
+router.post('/', cadastrarAnunciante);
 
 export default router;
