@@ -2,24 +2,26 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import conectarMongoDB from './config/db.js'; // ✅ import da conexão
+import conectarMongoDB from './config/db.js';
 import anuncioRoutes from './routes/anuncioRoutes.js';
+import anuncianteRoutes from './routes/anuncianteRoutes.js'; // ✅ NOVO
 
 dotenv.config();
-conectarMongoDB(); // ✅ conecta ao MongoDB
+conectarMongoDB();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Rotas da API
 app.use('/api/anuncios', anuncioRoutes);
-
-const PORT = process.env.PORT || 5000;
+app.use('/api/anunciantes', anuncianteRoutes); // ✅ NOVA ROTA
 
 app.get('/', (req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
 });
 
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
