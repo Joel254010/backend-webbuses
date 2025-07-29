@@ -1,7 +1,8 @@
 // routes/curtidaRoutes.js
-const express = require('express');
+import express from 'express';
+import Curtida from '../models/Curtida.js';
+
 const router = express.Router();
-const Curtida = require('../models/Curtida');
 
 router.post('/', async (req, res) => {
   const { anuncioId, ip } = req.body;
@@ -25,4 +26,4 @@ router.post('/', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
