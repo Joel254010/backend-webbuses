@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import conectarMongoDB from './config/db.js';
 import anuncioRoutes from './routes/anuncioRoutes.js';
 import anuncianteRoutes from './routes/anuncianteRoutes.js'; // ✅ NOVO
+import curtidaRoutes from './routes/curtidaRoutes.js'; // ✅ NOVO - Curtidas por IP
 
 dotenv.config();
 conectarMongoDB();
@@ -16,7 +17,8 @@ app.use(express.urlencoded({ extended: true, limit: '30mb' })); // ✅ Essencial
 
 // Rotas da API
 app.use('/api/anuncios', anuncioRoutes);
-app.use('/api/anunciantes', anuncianteRoutes); // ✅ NOVA ROTA
+app.use('/api/anunciantes', anuncianteRoutes); // ✅ Nova rota
+app.use('/api/curtidas', curtidaRoutes); // ✅ Rota para curtidas
 
 app.get('/', (req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
