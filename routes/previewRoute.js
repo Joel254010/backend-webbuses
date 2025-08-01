@@ -10,7 +10,7 @@ router.get('/:id', async (req, res) => {
     const titulo = `🚍 ${anuncio.fabricanteCarroceria} ${anuncio.modeloCarroceria}`;
     const descricao = `Confira esse ônibus à venda em ${anuncio.localizacao?.cidade} - ${anuncio.localizacao?.estado}`;
     const imagem = anuncio.imagens?.[0] || "https://webbuses.com/logo.png";
-    const destino = `https://webbuses.com/onibus/${anuncio._id}`;
+    const destino = `https://webbuses.com/onibus/${anuncio._id}?from=preview`;
 
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(`
