@@ -12,7 +12,7 @@ router.get('/:id', async (req, res) => {
     const imagem = anuncio.imagens?.[0] || "https://webbuses.com/logo.png";
     const destino = `https://webbuses.com/onibus/${anuncio._id}`;
 
-    res.set('Cache-Control', 'public, max-age=3600'); // ajuda no WhatsApp
+    res.set('Cache-Control', 'public, max-age=3600');
     res.send(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -22,7 +22,13 @@ router.get('/:id', async (req, res) => {
         <meta property="og:description" content="${descricao}" />
         <meta property="og:image" content="${imagem}" />
         <meta property="og:url" content="${destino}" />
+        <meta property="og:type" content="website" />
+
         <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="${titulo}" />
+        <meta name="twitter:description" content="${descricao}" />
+        <meta name="twitter:image" content="${imagem}" />
+
         <title>${titulo}</title>
         <style>
           body {
@@ -32,7 +38,7 @@ router.get('/:id', async (req, res) => {
             font-family: sans-serif;
             padding: 80px 20px;
           }
-          a {
+          a.botao {
             background: #88fe03;
             padding: 12px 24px;
             border-radius: 8px;
@@ -40,6 +46,7 @@ router.get('/:id', async (req, res) => {
             font-weight: bold;
             text-decoration: none;
             font-size: 16px;
+            display: inline-block;
           }
         </style>
       </head>
@@ -48,7 +55,13 @@ router.get('/:id', async (req, res) => {
         <p>${descricao}</p>
         <img src="${imagem}" alt="Imagem do ônibus" width="90%" style="max-width:500px;border-radius:12px;" />
         <br/><br/>
-        <a href="${destino}">👉 Ver anúncio completo</a>
+        <a href="#" class="botao" onclick="irDireto()">👉 Ver anúncio completo</a>
+
+        <script>
+          function irDireto() {
+            window.location.replace("${destino}");
+          }
+        </script>
       </body>
       </html>
     `);
