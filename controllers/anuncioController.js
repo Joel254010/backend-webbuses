@@ -16,7 +16,9 @@ export const listarAnuncios = async (req, res) => {
   try {
     const lista = await Anuncio.find({}, { imagens: 0 }) // ← Remove campo 'imagens'
       .sort({ dataCriacao: -1 })
-      .limit(50);
+      .limit(50)
+      .lean(); // ← Adiciona lean para performance!
+
     res.json(lista);
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao buscar anúncios", detalhes: erro.message });
