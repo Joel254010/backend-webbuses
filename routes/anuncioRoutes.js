@@ -1,13 +1,12 @@
-// routes/anuncioRoutes.js
 import express from 'express';
 import Anuncio from '../models/Anuncio.js';
 
 const router = express.Router();
 
-// ✅ GET todos os anúncios
+// ✅ GET todos os anúncios (limitado para evitar travamento)
 router.get('/', async (req, res) => {
   try {
-    const anuncios = await Anuncio.find();
+    const anuncios = await Anuncio.find().limit(50); // Limita a 50 resultados
     res.json(anuncios);
   } catch (erro) {
     console.error("Erro ao buscar anúncios:", erro);

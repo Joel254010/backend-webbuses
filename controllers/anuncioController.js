@@ -1,6 +1,4 @@
-// controllers/anuncioController.js
-
-import Anuncio from '../models/Anuncio.js'; // importa o model do banco
+import Anuncio from '../models/Anuncio.js';
 
 // Criar um novo anúncio no MongoDB
 export const criarAnuncio = async (req, res) => {
@@ -13,10 +11,12 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
-// Listar todos os anúncios salvos no MongoDB
+// Listar todos os anúncios salvos no MongoDB (sem imagens pesadas)
 export const listarAnuncios = async (req, res) => {
   try {
-    const lista = await Anuncio.find().sort({ dataCriacao: -1 });
+    const lista = await Anuncio.find({}, { imagens: 0 }) // ← Remove campo 'imagens'
+      .sort({ dataCriacao: -1 })
+      .limit(50);
     res.json(lista);
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao buscar anúncios", detalhes: erro.message });
