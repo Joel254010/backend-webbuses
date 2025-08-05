@@ -4,16 +4,20 @@ import Anuncio from '../models/Anuncio.js';
 import {
   criarAnuncio,
   listarAnuncios,
+  listarTodosAnunciosAdmin, // ✅ nova função para admin
   atualizarStatusAnuncio,
   excluirAnuncio
 } from '../controllers/anuncioController.js';
 
 const router = express.Router();
 
-// ✅ GET - Listar anúncios com paginação e dados essenciais
+// ✅ GET - Listar anúncios aprovados com paginação (Home)
 router.get('/', listarAnuncios);
 
-// ✅ GET - Buscar anúncio completo por ID (para página de detalhes)
+// ✅ GET - Listar TODOS os anúncios (PainelAdmin)
+router.get('/admin', listarTodosAnunciosAdmin);
+
+// ✅ GET - Buscar anúncio completo por ID (Página de detalhes)
 router.get('/:id', async (req, res) => {
   try {
     const anuncio = await Anuncio.findById(req.params.id).lean();

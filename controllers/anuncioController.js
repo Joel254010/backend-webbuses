@@ -1,7 +1,7 @@
 // controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
-// Variáveis de cache em memória
+// Variáveis de cache em memória (somente para listagem pública)
 let cacheAnuncios = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 60000; // 60 segundos
@@ -21,7 +21,7 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
-// Listar anúncios aprovados com paginação e campos essenciais
+// Listar anúncios aprovados (Home) — com cache e apenas capa
 export const listarAnuncios = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -37,7 +37,7 @@ export const listarAnuncios = async (req, res) => {
         paginaAtual: page,
         totalPaginas: Math.ceil(total / limit),
         totalAnuncios: total,
-        origem: "cache" // debug
+        origem: "cache"
       });
     }
 
@@ -55,17 +55,17 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: 1, // vamos pegar todas para processar
+        imagens: 1,
         dataCriacao: 1
       }
     )
       .sort({ dataCriacao: -1 })
       .lean();
 
-    // Mantém apenas a primeira imagem como capa, remove as demais
+    // Mantém apenas a primeira imagem como capa
     lista.forEach(anuncio => {
       if (Array.isArray(anuncio.imagens) && anuncio.imagens.length > 0) {
-        anuncio.imagens = [anuncio.imagens[0]]; // mantém só a capa
+        anuncio.imagens = [anuncio.imagens[0]];
       } else {
         anuncio.imagens = [];
       }
@@ -82,11 +82,24 @@ export const listarAnuncios = async (req, res) => {
       paginaAtual: page,
       totalPaginas: Math.ceil(total / limit),
       totalAnuncios: total,
-      origem: "banco" // debug
+      origem: "banco"
     });
 
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao buscar anúncios", detalhes: erro.message });
+  }
+};
+
+// Listar TODOS os anúncios (PainelAdmin) — sem filtro e com todas as imagens/dados
+export const listarTodosAnunciosAdmin = async (req, res) => {
+  try {
+    const lista = await Anuncio.find({})
+      .sort({ dataCriacao: -1 })
+      .lean();
+
+    res.json(lista);
+  } catch (erro) {
+    res.status(500).json({ erro: "Erro ao buscar todos os anúncios (admin)", detalhes: erro.message });
   }
 };
 
@@ -97,7 +110,7 @@ export const atualizarStatusAnuncio = async (req, res) => {
 
   try {
     const atualizado = await Anuncio.findByIdAndUpdate(id, { status }, { new: true });
-    cacheAnuncios = null; // limpa cache
+    cacheAnuncios = null; // limpa cache da Home
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
