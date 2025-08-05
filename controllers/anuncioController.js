@@ -1,3 +1,4 @@
+// controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
 // Variáveis de cache em memória
@@ -36,11 +37,11 @@ export const listarAnuncios = async (req, res) => {
         paginaAtual: page,
         totalPaginas: Math.ceil(total / limit),
         totalAnuncios: total,
-        origem: "cache" // para debug
+        origem: "cache" // debug
       });
     }
 
-    // Filtro otimizado (usa índice)
+    // Filtro otimizado
     const filtro = { status: "aprovado" };
 
     const total = await Anuncio.countDocuments(filtro);
@@ -54,21 +55,23 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: { $slice: 1 },
+        imagens: 1, // vamos pegar todas para processar
         dataCriacao: 1
       }
     )
       .sort({ dataCriacao: -1 })
       .lean();
 
-    // Remove base64 pesado
+    // Mantém apenas a primeira imagem como capa, remove as demais
     lista.forEach(anuncio => {
-      if (anuncio.imagens?.[0]?.startsWith("data:image")) {
+      if (Array.isArray(anuncio.imagens) && anuncio.imagens.length > 0) {
+        anuncio.imagens = [anuncio.imagens[0]]; // mantém só a capa
+      } else {
         anuncio.imagens = [];
       }
     });
 
-    // Atualiza o cache
+    // Atualiza cache
     cacheAnuncios = lista;
     cacheTimestamp = Date.now();
 
@@ -79,7 +82,7 @@ export const listarAnuncios = async (req, res) => {
       paginaAtual: page,
       totalPaginas: Math.ceil(total / limit),
       totalAnuncios: total,
-      origem: "banco" // para debug
+      origem: "banco" // debug
     });
 
   } catch (erro) {
