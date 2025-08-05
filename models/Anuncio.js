@@ -1,16 +1,17 @@
+// models/Anuncio.js
 import mongoose from 'mongoose';
 
 const anuncioSchema = new mongoose.Schema({
   // 🔸 Dados do anunciante
-  nomeAnunciante: { type: String, required: true },
+  nomeAnunciante: { type: String, required: true, index: true },
   anunciante: String, // link do WhatsApp
-  email: String,
+  email: { type: String, index: true, sparse: true },
   telefone: String,
   telefoneBruto: String,
 
   // 🔸 Especificações do veículo
-  tipoModelo: String,
-  fabricanteCarroceria: String,
+  tipoModelo: { type: String, index: true },
+  fabricanteCarroceria: { type: String, index: true },
   modeloCarroceria: String,
   fabricanteChassis: String,
   modeloChassis: String,
@@ -18,25 +19,30 @@ const anuncioSchema = new mongoose.Schema({
   lugares: String,
   cor: String,
   anoModelo: String,
-  valor: { type: Number, min: 0 },
+  valor: { type: Number, min: 0, index: true },
   descricao: { type: String, maxlength: 5000 },
 
   // 🔸 Mídia
-  fotoCapaUrl: String,
-  imagens: [String],
+  fotoCapaUrl: String, // Apenas capa para listagem
+  imagens: [String], // Todas imagens para página de detalhes
 
   // 🔸 Localização
   localizacao: {
-    cidade: String,
-    estado: String
+    cidade: { type: String, index: true },
+    estado: { type: String, index: true }
   },
 
   // 🔸 Controle
-  status: { type: String, default: 'pendente' },
-  dataCadastro: { type: String }, // ou: Date
-  dataEnvio: { type: String }, // ou: Date
-  dataCriacao: { type: Date, default: Date.now }
+  status: { type: String, default: 'pendente', index: true },
+  dataCadastro: { type: String },
+  dataEnvio: { type: String },
+  dataCriacao: { type: Date, default: Date.now, index: true }
 });
+
+// Criar índices compostos para acelerar buscas e filtros
+anuncioSchema.index({ status: 1, dataCriacao: -1 });
+anuncioSchema.index({ tipoModelo: 1, status: 1 });
+anuncioSchema.index({ fabricanteCarroceria: 1, status: 1 });
 
 const Anuncio = mongoose.model('Anuncio', anuncioSchema);
 
