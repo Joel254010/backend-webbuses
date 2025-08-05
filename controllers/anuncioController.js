@@ -93,13 +93,40 @@ export const listarAnuncios = async (req, res) => {
 // Listar TODOS os anúncios (PainelAdmin) — sem filtro e com todas as imagens/dados
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
-    const lista = await Anuncio.find({})
+    const lista = await Anuncio.find({}, {
+      nomeAnunciante: 1,
+      anunciante: 1,
+      email: 1,
+      telefone: 1,
+      telefoneBruto: 1,
+      tipoModelo: 1,
+      fabricanteCarroceria: 1,
+      modeloCarroceria: 1,
+      fabricanteChassis: 1,
+      modeloChassis: 1,
+      kilometragem: 1,
+      lugares: 1,
+      cor: 1,
+      anoModelo: 1,
+      valor: 1,
+      descricao: 1,
+      fotoCapaUrl: 1,
+      imagens: 1,
+      localizacao: 1,
+      status: 1,
+      dataCadastro: 1,
+      dataEnvio: 1,
+      dataCriacao: 1
+    })
       .sort({ dataCriacao: -1 })
       .lean();
 
     res.json(lista);
   } catch (erro) {
-    res.status(500).json({ erro: "Erro ao buscar todos os anúncios (admin)", detalhes: erro.message });
+    res.status(500).json({
+      erro: "Erro ao buscar todos os anúncios (admin)",
+      detalhes: erro.message
+    });
   }
 };
 
