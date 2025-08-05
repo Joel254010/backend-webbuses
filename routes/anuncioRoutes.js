@@ -1,11 +1,11 @@
-// routes/anuncioRoutes.js
 import express from 'express';
 import Anuncio from '../models/Anuncio.js';
 import {
   criarAnuncio,
   listarAnuncios,
-  listarTodosAnunciosAdmin, // ✅ nova função para admin
+  listarTodosAnunciosAdmin,
   atualizarStatusAnuncio,
+  atualizarAnuncio, // ✅ nova função
   excluirAnuncio
 } from '../controllers/anuncioController.js';
 
@@ -35,6 +35,9 @@ router.post('/', criarAnuncio);
 
 // ✅ PATCH - Atualizar status
 router.patch('/:id', atualizarStatusAnuncio);
+
+// ✅ PUT - Atualizar qualquer campo do anúncio
+router.put('/:id', atualizarAnuncio);
 
 // ✅ DELETE - Excluir anúncio
 router.delete('/:id', excluirAnuncio);

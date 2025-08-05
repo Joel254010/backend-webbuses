@@ -92,7 +92,7 @@ export const listarAnuncios = async (req, res) => {
   }
 };
 
-// Listar TODOS os anúncios (PainelAdmin) — sem filtro e com todas as imagens/dados
+// Listar TODOS os anúncios (PainelAdmin)
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
     const lista = await Anuncio.find({}, {
@@ -132,18 +132,33 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
   }
 };
 
-// Atualizar status
+// Atualizar apenas status
 export const atualizarStatusAnuncio = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
   try {
     const atualizado = await Anuncio.findByIdAndUpdate(id, { status }, { new: true });
-    cacheAnuncios = null; // limpa cache da Home
+    cacheAnuncios = null; 
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao atualizar status", detalhes: erro.message });
+  }
+};
+
+// Atualizar qualquer campo do anúncio
+export const atualizarAnuncio = async (req, res) => {
+  const { id } = req.params;
+  const dadosAtualizados = req.body;
+
+  try {
+    const atualizado = await Anuncio.findByIdAndUpdate(id, dadosAtualizados, { new: true });
+    cacheAnuncios = null; 
+    if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
+    res.json({ mensagem: "Anúncio atualizado com sucesso", anuncio: atualizado });
+  } catch (erro) {
+    res.status(500).json({ erro: "Erro ao atualizar anúncio", detalhes: erro.message });
   }
 };
 
@@ -153,7 +168,7 @@ export const excluirAnuncio = async (req, res) => {
 
   try {
     const removido = await Anuncio.findByIdAndDelete(id);
-    cacheAnuncios = null; // limpa cache
+    cacheAnuncios = null; 
     if (!removido) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio excluído com sucesso" });
   } catch (erro) {
