@@ -1,4 +1,3 @@
-// controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
 // Criar novo anúncio
@@ -41,6 +40,15 @@ export const listarAnuncios = async (req, res) => {
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Remove base64 pesado da listagem para acelerar carregamento
+    lista.forEach(anuncio => {
+      if (anuncio.imagens && anuncio.imagens.length > 0) {
+        if (typeof anuncio.imagens[0] === "string" && anuncio.imagens[0].startsWith("data:image")) {
+          anuncio.imagens = []; // remove imagem base64 da listagem
+        }
+      }
+    });
 
     res.json({
       anuncios: lista,
