@@ -1,4 +1,3 @@
-// controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
 // Variáveis de cache em memória (somente para listagem pública)
@@ -21,7 +20,7 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
-// Listar anúncios aprovados (Home) — com cache e apenas capa
+// Listar anúncios aprovados (Home e Meus Anúncios) — com cache e apenas capa
 export const listarAnuncios = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -41,22 +40,25 @@ export const listarAnuncios = async (req, res) => {
       });
     }
 
-    // Filtro otimizado
+    // Filtro para apenas aprovados
     const filtro = { status: "aprovado" };
-
     const total = await Anuncio.countDocuments(filtro);
 
     const lista = await Anuncio.find(
       filtro,
       {
         nomeAnunciante: 1,
+        telefone: 1,
+        telefoneBruto: 1,
+        email: 1,
         fabricanteCarroceria: 1,
         modeloCarroceria: 1,
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
         imagens: 1,
-        dataCriacao: 1
+        dataCriacao: 1,
+        status: 1
       }
     )
       .sort({ dataCriacao: -1 })
