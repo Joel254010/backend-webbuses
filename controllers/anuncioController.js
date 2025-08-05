@@ -19,10 +19,13 @@ export const listarAnuncios = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const total = await Anuncio.countDocuments({ status: "aprovado" });
+    // Filtro para 'aprovado' sem diferenciar maiúsculas/minúsculas
+    const filtro = { status: /aprovado/i };
+
+    const total = await Anuncio.countDocuments(filtro);
 
     const lista = await Anuncio.find(
-      { status: "aprovado" },
+      filtro,
       {
         nomeAnunciante: 1,
         fabricanteCarroceria: 1,
@@ -30,7 +33,7 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: { $slice: 1 }, // apenas capa
+        imagens: { $slice: 1 }, // apenas a capa
         dataCriacao: 1
       }
     )
