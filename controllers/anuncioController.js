@@ -1,11 +1,19 @@
-// controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
+
+// Variáveis de cache em memória
+let cacheAnuncios = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60000; // 60 segundos
 
 // Criar novo anúncio
 export const criarAnuncio = async (req, res) => {
   try {
     const novo = new Anuncio(req.body);
     const salvo = await novo.save();
+
+    // Limpa o cache para garantir que novos anúncios apareçam
+    cacheAnuncios = null;
+
     res.status(201).json({ mensagem: "Anúncio salvo com sucesso!", anuncio: salvo });
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao salvar o anúncio", detalhes: erro.message });
@@ -19,7 +27,20 @@ export const listarAnuncios = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Filtro otimizado (usa índice sem regex)
+    // Verifica se o cache ainda é válido
+    if (cacheAnuncios && (Date.now() - cacheTimestamp) < CACHE_TTL) {
+      const total = cacheAnuncios.length;
+      const paginados = cacheAnuncios.slice(skip, skip + limit);
+      return res.json({
+        anuncios: paginados,
+        paginaAtual: page,
+        totalPaginas: Math.ceil(total / limit),
+        totalAnuncios: total,
+        origem: "cache" // para debug
+      });
+    }
+
+    // Filtro otimizado (usa índice)
     const filtro = { status: "aprovado" };
 
     const total = await Anuncio.countDocuments(filtro);
@@ -33,29 +54,32 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: { $slice: 1 }, // apenas capa
+        imagens: { $slice: 1 },
         dataCriacao: 1
       }
     )
-      .sort({ dataCriacao: -1 }) // usa índice
-      .skip(skip)
-      .limit(limit)
+      .sort({ dataCriacao: -1 })
       .lean();
 
-    // Remove base64 pesado da listagem
+    // Remove base64 pesado
     lista.forEach(anuncio => {
-      if (anuncio.imagens && anuncio.imagens.length > 0) {
-        if (typeof anuncio.imagens[0] === "string" && anuncio.imagens[0].startsWith("data:image")) {
-          anuncio.imagens = [];
-        }
+      if (anuncio.imagens?.[0]?.startsWith("data:image")) {
+        anuncio.imagens = [];
       }
     });
 
+    // Atualiza o cache
+    cacheAnuncios = lista;
+    cacheTimestamp = Date.now();
+
+    const paginados = lista.slice(skip, skip + limit);
+
     res.json({
-      anuncios: lista,
+      anuncios: paginados,
       paginaAtual: page,
       totalPaginas: Math.ceil(total / limit),
-      totalAnuncios: total
+      totalAnuncios: total,
+      origem: "banco" // para debug
     });
 
   } catch (erro) {
@@ -70,6 +94,7 @@ export const atualizarStatusAnuncio = async (req, res) => {
 
   try {
     const atualizado = await Anuncio.findByIdAndUpdate(id, { status }, { new: true });
+    cacheAnuncios = null; // limpa cache
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
@@ -83,6 +108,7 @@ export const excluirAnuncio = async (req, res) => {
 
   try {
     const removido = await Anuncio.findByIdAndDelete(id);
+    cacheAnuncios = null; // limpa cache
     if (!removido) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio excluído com sucesso" });
   } catch (erro) {
