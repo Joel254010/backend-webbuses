@@ -1,3 +1,4 @@
+// controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
 // Criar novo anúncio
@@ -18,8 +19,8 @@ export const listarAnuncios = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Filtro para 'aprovado' sem diferenciar maiúsculas/minúsculas
-    const filtro = { status: /aprovado/i };
+    // Filtro otimizado (usa índice sem regex)
+    const filtro = { status: "aprovado" };
 
     const total = await Anuncio.countDocuments(filtro);
 
@@ -32,20 +33,20 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: { $slice: 1 }, // apenas a capa
+        imagens: { $slice: 1 }, // apenas capa
         dataCriacao: 1
       }
     )
-      .sort({ dataCriacao: -1 })
+      .sort({ dataCriacao: -1 }) // usa índice
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Remove base64 pesado da listagem para acelerar carregamento
+    // Remove base64 pesado da listagem
     lista.forEach(anuncio => {
       if (anuncio.imagens && anuncio.imagens.length > 0) {
         if (typeof anuncio.imagens[0] === "string" && anuncio.imagens[0].startsWith("data:image")) {
-          anuncio.imagens = []; // remove imagem base64 da listagem
+          anuncio.imagens = [];
         }
       }
     });
