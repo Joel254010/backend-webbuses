@@ -1,7 +1,7 @@
 // controllers/anuncioController.js
 import Anuncio from '../models/Anuncio.js';
 
-// Criar um novo anúncio no MongoDB
+// Criar novo anúncio
 export const criarAnuncio = async (req, res) => {
   try {
     const novo = new Anuncio(req.body);
@@ -12,17 +12,15 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
-// Listar anúncios aprovados com paginação e apenas dados essenciais
+// Listar anúncios aprovados com paginação e campos essenciais
 export const listarAnuncios = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1; // Página atual (default 1)
-    const limit = parseInt(req.query.limit) || 20; // Itens por página (default 20)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Conta total de anúncios aprovados
     const total = await Anuncio.countDocuments({ status: "aprovado" });
 
-    // Busca anúncios com apenas os campos necessários
     const lista = await Anuncio.find(
       { status: "aprovado" },
       {
@@ -32,7 +30,8 @@ export const listarAnuncios = async (req, res) => {
         kilometragem: 1,
         valor: 1,
         localizacao: 1,
-        imagens: { $slice: 1 }, // Apenas a primeira imagem (capa)
+        imagens: { $slice: 1 }, // apenas capa
+        dataCriacao: 1
       }
     )
       .sort({ dataCriacao: -1 })
@@ -52,35 +51,27 @@ export const listarAnuncios = async (req, res) => {
   }
 };
 
-// Atualizar status (aprovado/rejeitado)
+// Atualizar status
 export const atualizarStatusAnuncio = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
   try {
     const atualizado = await Anuncio.findByIdAndUpdate(id, { status }, { new: true });
-
-    if (!atualizado) {
-      return res.status(404).json({ erro: "Anúncio não encontrado." });
-    }
-
+    if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao atualizar status", detalhes: erro.message });
   }
 };
 
-// Excluir anúncio por ID
+// Excluir
 export const excluirAnuncio = async (req, res) => {
   const { id } = req.params;
 
   try {
     const removido = await Anuncio.findByIdAndDelete(id);
-
-    if (!removido) {
-      return res.status(404).json({ erro: "Anúncio não encontrado." });
-    }
-
+    if (!removido) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio excluído com sucesso" });
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao excluir anúncio", detalhes: erro.message });

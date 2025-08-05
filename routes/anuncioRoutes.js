@@ -9,30 +9,27 @@ import {
 
 const router = express.Router();
 
-// ✅ GET - Lista anúncios usando o controller otimizado
+// GET - Listar anúncios com paginação
 router.get('/', listarAnuncios);
 
-// ✅ GET - Buscar anúncio por ID
+// GET - Buscar por ID
 router.get('/:id', async (req, res) => {
   try {
     const anuncio = await Anuncio.findById(req.params.id);
-    if (!anuncio) {
-      return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
-    }
+    if (!anuncio) return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
     res.json(anuncio);
   } catch (erro) {
-    console.error("Erro ao buscar anúncio por ID:", erro);
     res.status(500).json({ mensagem: 'Erro ao buscar anúncio por ID' });
   }
 });
 
-// ✅ POST - Criar novo anúncio
+// POST
 router.post('/', criarAnuncio);
 
-// ✅ PATCH - Atualizar status ou dados do anúncio
+// PATCH
 router.patch('/:id', atualizarStatusAnuncio);
 
-// ✅ DELETE - Excluir anúncio
+// DELETE
 router.delete('/:id', excluirAnuncio);
 
 export default router;
