@@ -45,22 +45,24 @@ export const listarAnuncios = async (req, res) => {
     const total = await Anuncio.countDocuments(filtro);
 
     const lista = await Anuncio.find(
-      filtro,
-      {
-        nomeAnunciante: 1,
-        telefone: 1,
-        telefoneBruto: 1,
-        email: 1,
-        fabricanteCarroceria: 1,
-        modeloCarroceria: 1,
-        kilometragem: 1,
-        valor: 1,
-        localizacao: 1,
-        imagens: 1,
-        dataCriacao: 1,
-        status: 1
-      }
-    )
+  filtro,
+  {
+    nomeAnunciante: 1,
+    telefone: 1,
+    telefoneBruto: 1,
+    email: 1,
+    tipoModelo: 1, // ✅ Adicionado aqui
+    fabricanteCarroceria: 1,
+    modeloCarroceria: 1,
+    kilometragem: 1,
+    valor: 1,
+    localizacao: 1,
+    imagens: 1,
+    dataCriacao: 1,
+    status: 1
+  }
+)
+
       .sort({ dataCriacao: -1 })
       .lean();
 
