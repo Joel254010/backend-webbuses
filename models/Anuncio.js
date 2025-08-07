@@ -39,12 +39,21 @@ anuncioSchema.index({ status: 1, dataCriacao: -1 });
 
 /* ✅ Campo virtual: slugModelo para facilitar filtros */
 anuncioSchema.virtual('slugModelo').get(function () {
-  return (this.tipoModelo || "")
+  const raw = (this.tipoModelo || "").toLowerCase();
+
+  if (raw.includes("utilit")) return "utilitarios";
+  if (raw.includes("micro")) return "micro-onibus";
+  if (raw.includes("4x2")) return "onibus-4x2";
+  if (raw.includes("6x2")) return "onibus-6x2";
+  if (raw.includes("urbano")) return "onibus-urbano";
+  if (raw.includes("low")) return "onibus-low-driver";
+  if (raw.includes("double")) return "onibus-double-decker";
+
+  return raw
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove acentos
-    .toLowerCase()
-    .replace(/\s+/g, "-") // espaços por hífen
-    .replace(/[^a-z0-9-]/g, ""); // remove caracteres especiais
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
 });
 
 // ✅ Exportar com virtuais ativados
