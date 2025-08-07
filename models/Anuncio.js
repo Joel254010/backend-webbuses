@@ -46,8 +46,8 @@ anuncioSchema.virtual('slugModelo').get(function () {
   if (raw.includes("4x2")) return "onibus-4x2";
   if (raw.includes("6x2")) return "onibus-6x2";
   if (raw.includes("urbano")) return "onibus-urbano";
-  if (raw.includes("low")) return "onibus-low-driver";
-  if (raw.includes("double")) return "onibus-double-decker";
+  if (raw.includes("low")) return "lowdriver";          // ✅ atualizado
+  if (raw.includes("double")) return "doubledecker";    // ✅ atualizado
 
   return raw
     .normalize("NFD")
