@@ -34,7 +34,22 @@ const anuncioSchema = new mongoose.Schema({
   dataCriacao: { type: Date, default: Date.now }
 });
 
+// Índice de busca
 anuncioSchema.index({ status: 1, dataCriacao: -1 });
+
+/* ✅ Campo virtual: slugModelo para facilitar filtros */
+anuncioSchema.virtual('slugModelo').get(function () {
+  return (this.tipoModelo || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .toLowerCase()
+    .replace(/\s+/g, "-") // espaços por hífen
+    .replace(/[^a-z0-9-]/g, ""); // remove caracteres especiais
+});
+
+// ✅ Exportar com virtuais ativados
+anuncioSchema.set("toObject", { virtuals: true });
+anuncioSchema.set("toJSON", { virtuals: true });
 
 const Anuncio = mongoose.model('Anuncio', anuncioSchema);
 export default Anuncio;
