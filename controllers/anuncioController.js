@@ -40,46 +40,45 @@ export const listarAnuncios = async (req, res) => {
       });
     }
 
-    // Filtro para apenas aprovados
     const filtro = { status: "aprovado" };
     const total = await Anuncio.countDocuments(filtro);
 
-    const lista = await Anuncio.find(
-  filtro,
-  {
-    nomeAnunciante: 1,
-    telefone: 1,
-    telefoneBruto: 1,
-    email: 1,
-    tipoModelo: 1, // ✅ Adicionado aqui
-    fabricanteCarroceria: 1,
-    modeloCarroceria: 1,
-    kilometragem: 1,
-    valor: 1,
-    localizacao: 1,
-    imagens: 1,
-    dataCriacao: 1,
-    status: 1
-  }
-)
+    // ⚠️ REMOVIDO o .lean() para permitir os virtuais
+    const lista = await Anuncio.find(filtro, {
+      nomeAnunciante: 1,
+      telefone: 1,
+      telefoneBruto: 1,
+      email: 1,
+      tipoModelo: 1,
+      fabricanteCarroceria: 1,
+      modeloCarroceria: 1,
+      kilometragem: 1,
+      valor: 1,
+      localizacao: 1,
+      imagens: 1,
+      dataCriacao: 1,
+      status: 1
+    }).sort({ dataCriacao: -1 });
 
-      .sort({ dataCriacao: -1 })
-      .lean();
+    // ✅ Converter manualmente com virtuais
+    const listaComVirtuais = lista.map(anuncio => {
+      const obj = anuncio.toObject({ virtuals: true });
 
-    // Mantém apenas a primeira imagem como capa
-    lista.forEach(anuncio => {
-      if (Array.isArray(anuncio.imagens) && anuncio.imagens.length > 0) {
-        anuncio.imagens = [anuncio.imagens[0]];
+      // Mantém apenas a primeira imagem como capa
+      if (Array.isArray(obj.imagens) && obj.imagens.length > 0) {
+        obj.imagens = [obj.imagens[0]];
       } else {
-        anuncio.imagens = [];
+        obj.imagens = [];
       }
+
+      return obj;
     });
 
     // Atualiza cache
-    cacheAnuncios = lista;
+    cacheAnuncios = listaComVirtuais;
     cacheTimestamp = Date.now();
 
-    const paginados = lista.slice(skip, skip + limit);
+    const paginados = listaComVirtuais.slice(skip, skip + limit);
 
     res.json({
       anuncios: paginados,
