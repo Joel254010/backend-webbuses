@@ -1,3 +1,4 @@
+// routes/anuncioRoutes.js
 import express from 'express';
 import Anuncio from '../models/Anuncio.js';
 import {
@@ -5,41 +6,40 @@ import {
   listarAnuncios,
   listarTodosAnunciosAdmin,
   atualizarStatusAnuncio,
-  atualizarAnuncio, // ✅ nova função
+  atualizarAnuncio,
   excluirAnuncio
 } from '../controllers/anuncioController.js';
 
 const router = express.Router();
 
-// ✅ GET - Listar anúncios aprovados com paginação (Home)
+// Listagem pública (paginada)
 router.get('/', listarAnuncios);
 
-// ✅ GET - Listar TODOS os anúncios (PainelAdmin)
+// Admin (paginada)
 router.get('/admin', listarTodosAnunciosAdmin);
 
-// ✅ GET - Buscar anúncio completo por ID (Página de detalhes)
+// Detalhe por ID
 router.get('/:id', async (req, res) => {
   try {
-    const anuncio = await Anuncio.findById(req.params.id).lean();
-    if (!anuncio) {
-      return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
-    }
+    const { id } = req.params;
+    const anuncio = await Anuncio.findById(id).lean({ getters: true });
+    if (!anuncio) return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
     res.json(anuncio);
   } catch (erro) {
     res.status(500).json({ mensagem: 'Erro ao buscar anúncio por ID', detalhes: erro.message });
   }
 });
 
-// ✅ POST - Criar novo anúncio
+// Criar
 router.post('/', criarAnuncio);
 
-// ✅ PATCH - Atualizar status
-router.patch('/:id', atualizarStatusAnuncio);
+// Atualizar somente status
+router.patch('/:id/status', atualizarStatusAnuncio);
 
-// ✅ PUT - Atualizar qualquer campo do anúncio
-router.put('/:id', atualizarAnuncio);
+// Atualizar campos (parcial)
+router.patch('/:id', atualizarAnuncio);
 
-// ✅ DELETE - Excluir anúncio
+// Excluir
 router.delete('/:id', excluirAnuncio);
 
 export default router;
