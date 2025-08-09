@@ -33,10 +33,10 @@ router.get('/:id', async (req, res) => {
 // Criar
 router.post('/', criarAnuncio);
 
-// Atualizar somente status
+// Atualizar somente status (rota explícita evita ambiguidade)
 router.patch('/:id/status', atualizarStatusAnuncio);
 
-// Atualizar campos (parcial)
+// Atualizar campos
 router.patch('/:id', atualizarAnuncio);
 
 // Excluir
