@@ -17,28 +17,23 @@ conectarMongoDB();
 const app = express();
 
 /* ───────── Config básica ───────── */
-app.set('trust proxy', 1);               // Render/NGINX proxy
-app.set('etag', 'strong');               // ETag forte p/ APIs
-app.disable('x-powered-by');             // menos exposição
+app.set('trust proxy', 1);
+app.set('etag', 'strong');
+app.disable('x-powered-by');
 
 /* ───────── Middlewares globais ───────── */
-// Segurança leve (sem CSP rígido p/ não quebrar /preview)
 app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: false,
   })
 );
-
-// Compressão Gzip/Brotli (quando suportado) — ganha bem em payload de JSON
 app.use(compression());
-
-// CORS com cache de preflight (melhora navegação SPA)
 app.use(
   cors({
     origin: true,
     credentials: true,
-    maxAge: 86400, // 24h de cache do OPTIONS
+    maxAge: 86400,
   })
 );
 app.options('*', cors());
@@ -46,13 +41,26 @@ app.options('*', cors());
 app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 
-/* ───────── Rotas ───────── */
-app.get('/healthz', (req, res) => res.status(200).send('ok')); // p/ Render health checks
+/* ───────── Healthcheck ───────── */
+app.get('/healthz', (req, res) => res.status(200).send('ok'));
 
-app.use('/api/anuncios', anuncioRoutes);
-app.use('/api/anunciantes', anuncianteRoutes);
-app.use('/api/curtidas', curtidaRoutes);
-app.use('/preview', previewRoute); // ✅ OG Image Preview
+/* ───────── Registro de rotas com proteção ───────── */
+const safeUse = (basePath, router) => {
+  try {
+    if (typeof basePath !== 'string') throw new TypeError(`basePath inválido: ${String(basePath)}`);
+    app.use(basePath, router);
+  } catch (e) {
+    console.error(`❌ Falha ao registrar rota base "${basePath}"`);
+    console.error(e && e.stack ? e.stack : e);
+    // Encerra para o Render mostrar o stack certo
+    process.exit(1);
+  }
+};
+
+safeUse('/api/anuncios', anuncioRoutes);
+safeUse('/api/anunciantes', anuncianteRoutes);
+safeUse('/api/curtidas', curtidaRoutes);
+safeUse('/preview', previewRoute);
 
 // Rota padrão
 app.get('/', (req, res) => {
