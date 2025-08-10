@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Anuncio from '../models/Anuncio.js';
 
 // ----------------------
@@ -40,10 +41,7 @@ export const criarAnuncio = async (req, res) => {
 };
 
 // ----------------------
-// Listar anúncios (Home / Meus Anúncios)
-// - pagina no banco
-// - nunca envia `imagens`
-// - SEMPRE retorna `capaUrl` apontando para /api/anuncios/:id/capa
+// Listar anúncios (Home / Meus Anúncios) — leve
 // ----------------------
 export const listarAnuncios = async (req, res) => {
   try {
@@ -185,7 +183,7 @@ export const obterCapaAnuncio = async (req, res) => {
     const { id } = req.params;
     const a = await Anuncio.findById(
       id,
-      { fotoCapaUrl: 1, imagens: { $slice: 1 } }
+      { fotoCapaUrl: 1, imagens: { $slice: 1 }, dataCriacao: 1 }
     ).lean();
 
     if (!a) return res.status(404).send('Anúncio não encontrado');
@@ -215,6 +213,7 @@ export const obterCapaAnuncio = async (req, res) => {
       const buf  = Buffer.from(m[2], 'base64');
       res.set('Content-Type', mime);
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
       return res.status(200).send(buf);
     }
 
@@ -222,10 +221,93 @@ export const obterCapaAnuncio = async (req, res) => {
     const buf = Buffer.from(fonte, 'base64');
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
     return res.status(200).send(buf);
   } catch (erro) {
     console.error('capa erro:', erro);
     return res.status(500).send('Erro ao obter capa');
+  }
+};
+
+// ----------------------
+// ✅ META sem imagens (rápido para a página de detalhes)
+// ----------------------
+export const obterAnuncioMeta = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [doc] = await Anuncio.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(id) } },
+      {
+        $project: {
+          nomeAnunciante: 1,
+          anunciante: 1,
+          email: 1,
+          telefone: 1,
+          telefoneBruto: 1,
+          tipoModelo: 1,
+          fabricanteCarroceria: 1,
+          modeloCarroceria: 1,
+          fabricanteChassis: 1,
+          modeloChassis: 1,
+          kilometragem: 1,
+          lugares: 1,
+          cor: 1,
+          anoModelo: 1,
+          valor: 1,
+          descricao: 1,
+          localizacao: 1,
+          fotoCapaUrl: 1,
+          dataCriacao: 1,
+          imagensCount: { $size: { $ifNull: ["$imagens", []] } }
+        }
+      }
+    ]);
+
+    if (!doc) return res.status(404).json({ erro: "Anúncio não encontrado." });
+
+    const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    doc.capaUrl =
+      (doc.fotoCapaUrl && /^https?:\/\//i.test(doc.fotoCapaUrl))
+        ? doc.fotoCapaUrl
+        : `${apiBase}/api/anuncios/${id}/capa`;
+
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.json(doc);
+  } catch (erro) {
+    return res.status(500).json({ erro: "Erro ao buscar meta", detalhes: erro.message });
+  }
+};
+
+// ----------------------
+// ✅ Foto por índice (stream) — baixa em paralelo
+// ----------------------
+export const obterFotoAnuncioPorIndice = async (req, res) => {
+  try {
+    const { id, idx } = req.params;
+    const index = Math.max(parseInt(idx, 10) || 0, 0);
+
+    const a = await Anuncio.findById(id, { imagens: 1, dataCriacao: 1 }).lean();
+    if (!a) return res.status(404).send('Anúncio não encontrado');
+
+    const cand = Array.isArray(a.imagens) ? a.imagens[index] : null;
+    if (!cand) {
+      const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
+      return res.redirect(302, `${webBase}/logo.png`);
+    }
+
+    let mime = 'image/jpeg';
+    let b64 = cand;
+    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(cand);
+    if (m) { mime = m[1]; b64 = m[2]; }
+
+    const buf = Buffer.from(b64, 'base64');
+    res.set('Content-Type', mime);
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    if (a.dataCriacao) res.set('ETag', `"foto-${id}-${index}-${new Date(a.dataCriacao).getTime()}"`);
+    return res.status(200).send(buf);
+  } catch (erro) {
+    return res.status(500).send('Erro ao obter foto');
   }
 };
 

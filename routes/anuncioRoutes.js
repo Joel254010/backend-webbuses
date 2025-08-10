@@ -9,17 +9,22 @@ import {
   atualizarAnuncio,
   excluirAnuncio,
   obterCapaAnuncio,
+  obterAnuncioMeta,           // ✅ novo
+  obterFotoAnuncioPorIndice,  // ✅ novo
 } from '../controllers/anuncioController.js';
 
 const router = express.Router();
 
+// Listagem
 router.get('/', listarAnuncios);
 router.get('/admin', listarTodosAnunciosAdmin);
 
-// ✅ capa antes do :id
+// ✅ Endpoints leves (devem vir antes do '/:id')
+router.get('/:id/meta', obterAnuncioMeta);
 router.get('/:id/capa', obterCapaAnuncio);
+router.get('/:id/foto/:idx', obterFotoAnuncioPorIndice);
 
-// Detalhe por ID
+// Detalhe completo (legado)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -27,8 +32,9 @@ router.get('/:id', async (req, res) => {
       return res.status(400).json({ mensagem: 'ID inválido' });
     }
     const anuncio = await Anuncio.findById(id)
-      .lean({ getters: true })        // use como preferir; se precisar de virtuais, tirar o lean
+      .lean({ getters: true })
       .maxTimeMS(15000);
+
     if (!anuncio) return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
     res.json(anuncio);
   } catch (erro) {
@@ -36,6 +42,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// CRUD
 router.post('/', criarAnuncio);
 router.patch('/:id/status', atualizarStatusAnuncio);
 router.patch('/:id', atualizarAnuncio);
