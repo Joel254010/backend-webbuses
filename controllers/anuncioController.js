@@ -17,14 +17,20 @@ function invalidateListCaches() {
 }
 
 // ----------------------
-// Criar novo anúncio
+// Criar novo anúncio  (CAPA OBRIGATÓRIA)
 // ----------------------
 export const criarAnuncio = async (req, res) => {
   try {
     const novo = new Anuncio(req.body);
-    if (!novo.fotoCapaUrl && Array.isArray(novo.imagens) && novo.imagens.length > 0) {
+
+    // exige capa: fotoCapaUrl ou imagens[0]
+    if (!novo.fotoCapaUrl && !(Array.isArray(novo.imagens) && novo.imagens.length > 0)) {
+      return res.status(400).json({ erro: "Foto de capa é obrigatória." });
+    }
+    if (!novo.fotoCapaUrl && novo.imagens.length > 0) {
       novo.fotoCapaUrl = novo.imagens[0];
     }
+
     const salvo = await novo.save();
     invalidateListCaches();
     res.status(201).json({ mensagem: "Anúncio salvo com sucesso!", anuncio: salvo });
@@ -37,7 +43,7 @@ export const criarAnuncio = async (req, res) => {
 // Listar anúncios (Home / Meus Anúncios)
 // - pagina no banco
 // - nunca envia `imagens`
-// - SEMPRE retorna `capaUrl` (http) válida
+// - SEMPRE retorna `capaUrl` apontando para /api/anuncios/:id/capa
 // ----------------------
 export const listarAnuncios = async (req, res) => {
   try {
@@ -73,26 +79,7 @@ export const listarAnuncios = async (req, res) => {
           valor: 1,
           localizacao: 1,
           status: 1,
-          dataCriacao: 1,
-
-          // Só passa URL http/https; se base64 → null
-          capaUrl: {
-            $let: {
-              vars: {
-                preferida: { $ifNull: ["$fotoCapaUrl", { $arrayElemAt: ["$imagens", 0] }] }
-              },
-              in: {
-                $cond: [
-                  { $regexMatch: { input: "$$preferida", regex: /^https?:\/\//i } },
-                  "$$preferida",
-                  null
-                ]
-              }
-            }
-          },
-
-          // Sinaliza se existe alguma imagem armazenada
-          hasCapa: { $gt: [{ $size: { $ifNull: ["$imagens", []] } }, 0] }
+          dataCriacao: 1
         }
       },
       { $skip: skip },
@@ -102,19 +89,10 @@ export const listarAnuncios = async (req, res) => {
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
     const [anuncios, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
-    // Completa SEMPRE a capaUrl:
-    // - se já é http, mantém
-    // - se tem imagem salva (base64), aponta p/ /api/anuncios/:id/capa
-    // - se não tem, usa logo padrão do site
+    // SEMPRE usa a rota da capa (garante a foto oficial)
     const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
-    const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
-
     for (const a of anuncios) {
-      if (!a.capaUrl) {
-        a.capaUrl = a.hasCapa
-          ? `${apiBase}/api/anuncios/${a._id}/capa`
-          : `${webBase}/logo.png`;
-      }
+      a.capaUrl = `${apiBase}/api/anuncios/${a._id}/capa`;
     }
 
     const payload = {
@@ -200,43 +178,50 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 };
 
 // ----------------------
-// Capa de anúncio (sempre responde imagem)
+// Capa de anúncio (foto oficial do cadastro)
 // ----------------------
 export const obterCapaAnuncio = async (req, res) => {
   try {
     const { id } = req.params;
     const a = await Anuncio.findById(
       id,
-      { fotoCapaUrl: 1, imagens: { $slice: 1 }, dataCriacao: 1 }
+      { fotoCapaUrl: 1, imagens: { $slice: 1 } }
     ).lean();
 
     if (!a) return res.status(404).send('Anúncio não encontrado');
 
-    // Se já é uma URL http/https → redirect (rápido, usa cache do browser/CDN)
-    if (a.fotoCapaUrl && /^https?:\/\//i.test(a.fotoCapaUrl)) {
+    // prioriza SEMPRE a "foto oficial"
+    const fonte = a.fotoCapaUrl ?? (Array.isArray(a.imagens) ? a.imagens[0] : null);
+    if (!fonte) return res.status(404).send('Capa não encontrada');
+
+    // URL http/https → redirect
+    if (/^https?:\/\//i.test(fonte)) {
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-      return res.redirect(302, a.fotoCapaUrl);
+      return res.redirect(302, fonte);
     }
 
-    const candidato = a.fotoCapaUrl || (Array.isArray(a.imagens) ? a.imagens[0] : null);
-    if (!candidato) {
+    // caminho relativo → monta URL do site público (se aplicável)
+    if (!/^data:/i.test(fonte) && /^[./]?[/a-zA-Z0-9._-]/.test(fonte)) {
       const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
-      return res.redirect(302, `${webBase}/logo.png`);
+      const abs = fonte.startsWith('/') ? `${webBase}${fonte}` : `${webBase}/${fonte}`;
+      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      return res.redirect(302, abs);
     }
 
-    // Aceita data URI completa ou base64 “cru”
-    let mime = 'image/jpeg';
-    let b64 = candidato;
-    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(candidato || '');
+    // data URI → decodifica e envia
+    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(fonte || '');
     if (m) {
-      mime = m[1];
-      b64 = m[2];
+      const mime = m[1];
+      const buf  = Buffer.from(m[2], 'base64');
+      res.set('Content-Type', mime);
+      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      return res.status(200).send(buf);
     }
 
-    const buf = Buffer.from(b64, 'base64');
-    res.set('Content-Type', mime);
+    // base64 “cru” → assume jpeg
+    const buf = Buffer.from(fonte, 'base64');
+    res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-    if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
     return res.status(200).send(buf);
   } catch (erro) {
     console.error('capa erro:', erro);
@@ -264,13 +249,18 @@ export const atualizarStatusAnuncio = async (req, res) => {
 
 export const atualizarAnuncio = async (req, res) => {
   const { id } = req.params;
-  const dadosAtualizados = req.body || {};
+  const dados = req.body || {};
   try {
-    if (!dadosAtualizados.fotoCapaUrl && Array.isArray(dadosAtualizados.imagens) && dadosAtualizados.imagens.length > 0) {
-      dadosAtualizados.fotoCapaUrl = dadosAtualizados.imagens[0];
+    if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length > 0) {
+      dados.fotoCapaUrl = dados.imagens[0];
     }
+    // impede ficar sem capa
+    if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length === 0) {
+      return res.status(400).json({ erro: "Foto de capa é obrigatória." });
+    }
+
     const atualizado = await Anuncio.findByIdAndUpdate(
-      id, dadosAtualizados, { new: true, runValidators: true, projection: { __v: 0 } }
+      id, dados, { new: true, runValidators: true, projection: { __v: 0 } }
     ).lean();
     invalidateListCaches();
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });

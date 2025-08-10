@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Anuncio from '../models/Anuncio.js';
 import {
   criarAnuncio,
@@ -7,7 +8,7 @@ import {
   atualizarStatusAnuncio,
   atualizarAnuncio,
   excluirAnuncio,
-  obterCapaAnuncio,      // ✅ nova action
+  obterCapaAnuncio,
 } from '../controllers/anuncioController.js';
 
 const router = express.Router();
@@ -15,14 +16,19 @@ const router = express.Router();
 router.get('/', listarAnuncios);
 router.get('/admin', listarTodosAnunciosAdmin);
 
-// ✅ sempre antes de '/:id'
+// ✅ capa antes do :id
 router.get('/:id/capa', obterCapaAnuncio);
 
 // Detalhe por ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const anuncio = await Anuncio.findById(id).lean({ getters: true });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ mensagem: 'ID inválido' });
+    }
+    const anuncio = await Anuncio.findById(id)
+      .lean({ getters: true })        // use como preferir; se precisar de virtuais, tirar o lean
+      .maxTimeMS(15000);
     if (!anuncio) return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
     res.json(anuncio);
   } catch (erro) {
