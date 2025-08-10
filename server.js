@@ -50,7 +50,16 @@ app.get('/', (req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
 });
 
+// antes: conectarMongoDB(); app.listen(...)
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
-});
+
+try {
+  await conectarMongoDB();            // ✅ espere a conexão (Node 20+ suporta top-level await)
+  app.listen(PORT, () => {
+    console.log(`✅ Servidor rodando na porta ${PORT}`);
+  });
+} catch (err) {
+  console.error("❌ Falha ao conectar no MongoDB:", err);
+  process.exit(1);
+}

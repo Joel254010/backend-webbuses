@@ -1,41 +1,28 @@
 import Anuncio from '../models/Anuncio.js';
 
 // ----------------------
-// Cache simples em memória
-// ----------------------
 const CACHE_TTL = 60_000; // 60s
 const MAX_CACHE = 100;
-const cache = new Map();  // chave => { when, payload }
+const cache = new Map();
 const k = (name, q) => `${name}:${JSON.stringify(q)}`;
 
 function setCache(key, payload) {
-  if (cache.size >= MAX_CACHE) {
-    const firstKey = cache.keys().next().value;
-    cache.delete(firstKey);
-  }
+  if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value);
   cache.set(key, { when: Date.now(), payload });
 }
-
 function invalidateListCaches() {
-  for (const key of cache.keys()) {
-    if (key.startsWith('listar:')) cache.delete(key);
-  }
+  for (const key of cache.keys()) if (key.startsWith('listar:')) cache.delete(key);
 }
 
-// ----------------------
-// Criar novo anúncio
 // ----------------------
 export const criarAnuncio = async (req, res) => {
   try {
     const novo = new Anuncio(req.body);
-
     if (!novo.fotoCapaUrl && Array.isArray(novo.imagens) && novo.imagens.length > 0) {
       novo.fotoCapaUrl = novo.imagens[0];
     }
-
     const salvo = await novo.save();
     invalidateListCaches();
-
     res.status(201).json({ mensagem: "Anúncio salvo com sucesso!", anuncio: salvo });
   } catch (erro) {
     res.status(500).json({ erro: "Erro ao salvar o anúncio", detalhes: erro.message });
@@ -43,22 +30,16 @@ export const criarAnuncio = async (req, res) => {
 };
 
 // ----------------------
-// Listar anúncios aprovados (Home / Meus Anúncios)
-// - pagina no banco
-// - não envia `imagens`
-// - retorna somente `capaUrl`
-// ----------------------
 export const listarAnuncios = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
-    const skip = (page - 1) * limit;
+    const skip  = (page - 1) * limit;
 
     const filtro = { status: "aprovado" };
     if (req.query.anuncianteId) filtro.anunciante = req.query.anuncianteId;
-    if (req.query.tipoModelo) filtro.tipoModelo = req.query.tipoModelo;
+    if (req.query.tipoModelo)   filtro.tipoModelo = req.query.tipoModelo;
 
-    // cache por chave (filtro + paginação)
     const cacheKey = k('listar', { page, limit, filtro });
     const hit = cache.get(cacheKey);
     if (hit && Date.now() - hit.when < CACHE_TTL) {
@@ -66,7 +47,6 @@ export const listarAnuncios = async (req, res) => {
       return res.json({ ...hit.payload, origem: "cache" });
     }
 
-    // $project somente inclusão + campo computado (sem 0)
     const pipeline = [
       { $match: filtro },
       { $sort: { dataCriacao: -1 } },
@@ -84,8 +64,27 @@ export const listarAnuncios = async (req, res) => {
           localizacao: 1,
           status: 1,
           dataCriacao: 1,
-          capaUrl: { $ifNull: ["$fotoCapaUrl", { $arrayElemAt: ["$imagens", 0] }] },
-          // NÃO coloque 'imagens: 0' / 'descricao: 0' / '__v: 0' aqui
+
+          // ⚠️ Só envia URL http/https; se for base64 → null
+          capaUrl: {
+            $let: {
+              vars: {
+                preferida: { $ifNull: ["$fotoCapaUrl", { $arrayElemAt: ["$imagens", 0] }] }
+              },
+              in: {
+                $cond: [
+                  { $regexMatch: { input: "$$preferida", regex: /^https?:\/\//i } },
+                  "$$preferida",
+                  null
+                ]
+              }
+            }
+          },
+
+          // informa se existe capa armazenada sem mandar o array
+          hasCapa: {
+            $gt: [{ $size: { $ifNull: ["$imagens", []] } }, 0]
+          }
         }
       },
       { $skip: skip },
@@ -94,10 +93,7 @@ export const listarAnuncios = async (req, res) => {
 
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
 
-    const [anuncios, total] = await Promise.all([
-      agg.exec(),
-      Anuncio.countDocuments(filtro)
-    ]);
+    const [anuncios, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
     const payload = {
       anuncios,
@@ -116,23 +112,17 @@ export const listarAnuncios = async (req, res) => {
 };
 
 // ----------------------
-// Listar TODOS (Admin)
-// - paginação real
-// - por padrão SEM `imagens` para não explodir payload
-//   use ?full=1 somente quando precisar
-// ----------------------
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
-    const skip = (page - 1) * limit;
-    const full = (req.query.full === '1');
+    const skip  = (page - 1) * limit;
+    const full  = (req.query.full === '1');
 
     const filtro = {};
-    if (req.query.status) filtro.status = req.query.status;
+    if (req.query.status)       filtro.status = req.query.status;
     if (req.query.anuncianteId) filtro.anunciante = req.query.anuncianteId;
 
-    // monta projeção SEM usar "0" quando já tem "1"
     const projectionBase = {
       nomeAnunciante: 1,
       anunciante: 1,
@@ -157,17 +147,9 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
       dataCriacao: 1
     };
 
-    let projectStage;
-    if (full) {
-      projectStage = { ...projectionBase, descricao: 1, imagens: 1 };
-    } else {
-      projectStage = {
-        ...projectionBase,
-        // somente contagem de imagens (campo computado)
-        imagensCount: { $size: { $ifNull: ["$imagens", []] } }
-        // NÃO adicionar descricao:0/imagens:0
-      };
-    }
+    const projectStage = full
+      ? { ...projectionBase, descricao: 1, imagens: 1 }
+      : { ...projectionBase, imagensCount: { $size: { $ifNull: ["$imagens", []] } } };
 
     const pipeline = [
       { $match: filtro },
@@ -179,10 +161,7 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
 
-    const [items, total] = await Promise.all([
-      agg.exec(),
-      Anuncio.countDocuments(filtro)
-    ]);
+    const [items, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
     res.set("Cache-Control", "private, max-age=0, must-revalidate");
     return res.json({
@@ -192,15 +171,10 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
       total
     });
   } catch (erro) {
-    res.status(500).json({
-      erro: "Erro ao buscar todos os anúncios (admin)",
-      detalhes: erro.message
-    });
+    res.status(500).json({ erro: "Erro ao buscar todos os anúncios (admin)", detalhes: erro.message });
   }
 };
 
-// ----------------------
-// Atualizar apenas status
 // ----------------------
 export const atualizarStatusAnuncio = async (req, res) => {
   const { id } = req.params;
@@ -210,11 +184,10 @@ export const atualizarStatusAnuncio = async (req, res) => {
     const atualizado = await Anuncio.findByIdAndUpdate(
       id,
       { status },
-      { new: true, runValidators: true, projection: { __v: 0 } } // <-- projection em vez de fields
+      { new: true, runValidators: true, projection: { __v: 0 } }
     ).lean();
 
     invalidateListCaches();
-
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
@@ -222,8 +195,6 @@ export const atualizarStatusAnuncio = async (req, res) => {
   }
 };
 
-// ----------------------
-// Atualizar qualquer campo
 // ----------------------
 export const atualizarAnuncio = async (req, res) => {
   const { id } = req.params;
@@ -237,11 +208,10 @@ export const atualizarAnuncio = async (req, res) => {
     const atualizado = await Anuncio.findByIdAndUpdate(
       id,
       dadosAtualizados,
-      { new: true, runValidators: true, projection: { __v: 0 } } // <-- projection
+      { new: true, runValidators: true, projection: { __v: 0 } }
     ).lean();
 
     invalidateListCaches();
-
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio atualizado com sucesso", anuncio: atualizado });
   } catch (erro) {
@@ -250,15 +220,11 @@ export const atualizarAnuncio = async (req, res) => {
 };
 
 // ----------------------
-// Excluir
-// ----------------------
 export const excluirAnuncio = async (req, res) => {
   const { id } = req.params;
-
   try {
     const removido = await Anuncio.findByIdAndDelete(id, { projection: { __v: 0 } }).lean();
     invalidateListCaches();
-
     if (!removido) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio excluído com sucesso" });
   } catch (erro) {
