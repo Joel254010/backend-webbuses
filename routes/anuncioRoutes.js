@@ -1,4 +1,3 @@
-// routes/anuncioRoutes.js
 import express from 'express';
 import Anuncio from '../models/Anuncio.js';
 import {
@@ -7,16 +6,17 @@ import {
   listarTodosAnunciosAdmin,
   atualizarStatusAnuncio,
   atualizarAnuncio,
-  excluirAnuncio
+  excluirAnuncio,
+  obterCapaAnuncio,      // ✅ nova action
 } from '../controllers/anuncioController.js';
 
 const router = express.Router();
 
-// Listagem pública (paginada)
 router.get('/', listarAnuncios);
-
-// Admin (paginada)
 router.get('/admin', listarTodosAnunciosAdmin);
+
+// ✅ sempre antes de '/:id'
+router.get('/:id/capa', obterCapaAnuncio);
 
 // Detalhe por ID
 router.get('/:id', async (req, res) => {
@@ -30,16 +30,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Criar
 router.post('/', criarAnuncio);
-
-// Atualizar somente status (rota explícita evita ambiguidade)
 router.patch('/:id/status', atualizarStatusAnuncio);
-
-// Atualizar campos
 router.patch('/:id', atualizarAnuncio);
-
-// Excluir
 router.delete('/:id', excluirAnuncio);
 
 export default router;

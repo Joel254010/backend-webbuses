@@ -1,6 +1,8 @@
 import Anuncio from '../models/Anuncio.js';
 
 // ----------------------
+// Cache simples em memória
+// ----------------------
 const CACHE_TTL = 60_000; // 60s
 const MAX_CACHE = 100;
 const cache = new Map();
@@ -14,6 +16,8 @@ function invalidateListCaches() {
   for (const key of cache.keys()) if (key.startsWith('listar:')) cache.delete(key);
 }
 
+// ----------------------
+// Criar novo anúncio
 // ----------------------
 export const criarAnuncio = async (req, res) => {
   try {
@@ -29,6 +33,11 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
+// ----------------------
+// Listar anúncios (Home / Meus Anúncios)
+// - pagina no banco
+// - nunca envia `imagens`
+// - SEMPRE retorna `capaUrl` (http) válida
 // ----------------------
 export const listarAnuncios = async (req, res) => {
   try {
@@ -52,6 +61,7 @@ export const listarAnuncios = async (req, res) => {
       { $sort: { dataCriacao: -1 } },
       {
         $project: {
+          _id: 1,
           nomeAnunciante: 1,
           telefone: 1,
           telefoneBruto: 1,
@@ -65,7 +75,7 @@ export const listarAnuncios = async (req, res) => {
           status: 1,
           dataCriacao: 1,
 
-          // ⚠️ Só envia URL http/https; se for base64 → null
+          // Só passa URL http/https; se base64 → null
           capaUrl: {
             $let: {
               vars: {
@@ -81,10 +91,8 @@ export const listarAnuncios = async (req, res) => {
             }
           },
 
-          // informa se existe capa armazenada sem mandar o array
-          hasCapa: {
-            $gt: [{ $size: { $ifNull: ["$imagens", []] } }, 0]
-          }
+          // Sinaliza se existe alguma imagem armazenada
+          hasCapa: { $gt: [{ $size: { $ifNull: ["$imagens", []] } }, 0] }
         }
       },
       { $skip: skip },
@@ -92,8 +100,22 @@ export const listarAnuncios = async (req, res) => {
     ];
 
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
-
     const [anuncios, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
+
+    // Completa SEMPRE a capaUrl:
+    // - se já é http, mantém
+    // - se tem imagem salva (base64), aponta p/ /api/anuncios/:id/capa
+    // - se não tem, usa logo padrão do site
+    const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
+
+    for (const a of anuncios) {
+      if (!a.capaUrl) {
+        a.capaUrl = a.hasCapa
+          ? `${apiBase}/api/anuncios/${a._id}/capa`
+          : `${webBase}/logo.png`;
+      }
+    }
 
     const payload = {
       anuncios,
@@ -111,6 +133,8 @@ export const listarAnuncios = async (req, res) => {
   }
 };
 
+// ----------------------
+// Listar TODOS (Admin) — leve por padrão
 // ----------------------
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
@@ -176,17 +200,60 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 };
 
 // ----------------------
+// Capa de anúncio (sempre responde imagem)
+// ----------------------
+export const obterCapaAnuncio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const a = await Anuncio.findById(
+      id,
+      { fotoCapaUrl: 1, imagens: { $slice: 1 }, dataCriacao: 1 }
+    ).lean();
+
+    if (!a) return res.status(404).send('Anúncio não encontrado');
+
+    // Se já é uma URL http/https → redirect (rápido, usa cache do browser/CDN)
+    if (a.fotoCapaUrl && /^https?:\/\//i.test(a.fotoCapaUrl)) {
+      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      return res.redirect(302, a.fotoCapaUrl);
+    }
+
+    const candidato = a.fotoCapaUrl || (Array.isArray(a.imagens) ? a.imagens[0] : null);
+    if (!candidato) {
+      const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
+      return res.redirect(302, `${webBase}/logo.png`);
+    }
+
+    // Aceita data URI completa ou base64 “cru”
+    let mime = 'image/jpeg';
+    let b64 = candidato;
+    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(candidato || '');
+    if (m) {
+      mime = m[1];
+      b64 = m[2];
+    }
+
+    const buf = Buffer.from(b64, 'base64');
+    res.set('Content-Type', mime);
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
+    return res.status(200).send(buf);
+  } catch (erro) {
+    console.error('capa erro:', erro);
+    return res.status(500).send('Erro ao obter capa');
+  }
+};
+
+// ----------------------
+// Atualizações e exclusão
+// ----------------------
 export const atualizarStatusAnuncio = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
-
   try {
     const atualizado = await Anuncio.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true, runValidators: true, projection: { __v: 0 } }
+      id, { status }, { new: true, runValidators: true, projection: { __v: 0 } }
     ).lean();
-
     invalidateListCaches();
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Status atualizado com sucesso", anuncio: atualizado });
@@ -195,22 +262,16 @@ export const atualizarStatusAnuncio = async (req, res) => {
   }
 };
 
-// ----------------------
 export const atualizarAnuncio = async (req, res) => {
   const { id } = req.params;
   const dadosAtualizados = req.body || {};
-
   try {
     if (!dadosAtualizados.fotoCapaUrl && Array.isArray(dadosAtualizados.imagens) && dadosAtualizados.imagens.length > 0) {
       dadosAtualizados.fotoCapaUrl = dadosAtualizados.imagens[0];
     }
-
     const atualizado = await Anuncio.findByIdAndUpdate(
-      id,
-      dadosAtualizados,
-      { new: true, runValidators: true, projection: { __v: 0 } }
+      id, dadosAtualizados, { new: true, runValidators: true, projection: { __v: 0 } }
     ).lean();
-
     invalidateListCaches();
     if (!atualizado) return res.status(404).json({ erro: "Anúncio não encontrado." });
     res.json({ mensagem: "Anúncio atualizado com sucesso", anuncio: atualizado });
@@ -219,7 +280,6 @@ export const atualizarAnuncio = async (req, res) => {
   }
 };
 
-// ----------------------
 export const excluirAnuncio = async (req, res) => {
   const { id } = req.params;
   try {
