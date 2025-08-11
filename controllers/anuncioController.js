@@ -6,7 +6,6 @@ import Anuncio from '../models/Anuncio.js';
    Utils
 ────────────────────────────────────────────────────────── */
 function getBaseUrl(req) {
-  // respeita proxy (Render/Netlify)
   const proto = req.get('x-forwarded-proto') || req.protocol;
   const host = req.get('x-forwarded-host') || req.get('host');
   return `${proto}://${host}`;
@@ -104,6 +103,36 @@ async function sendImageFromSource(res, source, {
 }
 
 /* ──────────────────────────────────────────────────────────
+   Resolver de fonte de imagem:
+   - data URI → {type:'data', value:<mesmo>}
+   - http/https → {type:'url', value:<mesmo>}
+   - nome de arquivo → {type:'url', value: <PUBLIC_UPLOADS_URL>/<arquivo>}
+────────────────────────────────────────────────────────── */
+function resolveFonteToUrlOrData(raw) {
+  if (!raw) return { type: 'none', value: null };
+  const s = String(raw);
+
+  // URL completa
+  if (/^https?:\/\//i.test(s)) return { type: 'url', value: s };
+
+  // data URI
+  if (/^data:image\//i.test(s)) return { type: 'data', value: s };
+
+  // nome de arquivo (ex.: photo-123.png) → usa PUBLIC_UPLOADS_URL (ou PUBLIC_API_URL + /uploads)
+  const uploadsBase =
+    (process.env.PUBLIC_UPLOADS_URL && process.env.PUBLIC_UPLOADS_URL.replace(/\/+$/, '')) ||
+    ((process.env.PUBLIC_API_URL && `${process.env.PUBLIC_API_URL.replace(/\/+$/, '')}/uploads`) || null);
+
+  if (uploadsBase) {
+    const path = s.replace(/^\/+/, '');
+    return { type: 'url', value: `${uploadsBase}/${path}` };
+  }
+
+  // sem base configurada, devolve como "desconhecido" (deixa o caller decidir)
+  return { type: 'unknown', value: s };
+}
+
+/* ──────────────────────────────────────────────────────────
    Criar novo anúncio  (CAPA OBRIGATÓRIA)
 ────────────────────────────────────────────────────────── */
 export const criarAnuncio = async (req, res) => {
@@ -198,14 +227,14 @@ export const listarAnuncios = async (req, res) => {
 
 /* ──────────────────────────────────────────────────────────
    Listar TODOS (Admin) — leve por padrão + capa garantida
-   (⚠️ era aqui que a capa sumia)
 ────────────────────────────────────────────────────────── */
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
     const pageRaw  = parseInt(req.query.page);
     const limitRaw = parseInt(req.query.limit);
+    // default menor para acelerar o Admin
     const page  = Math.max(Number.isFinite(pageRaw) ? pageRaw : 1, 1);
-    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 50, 1), 100);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 24, 1), 100);
     const skip  = (page - 1) * limit;
     const full  = (req.query.full === '1');
 
@@ -254,7 +283,6 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
       : {
           ...projectionBase,
           imagensCount: { $size: { $ifNull: ["$imagens", []] } },
-          // calcula 'temCapa' sem expor o array 'imagens'
           temCapa: {
             $cond: {
               if: {
@@ -280,7 +308,7 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
     const [items, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
-    // 🔧 Garantimos 'capaUrl' para o Admin (foi o ponto que sumiu)
+    // Garante 'capaUrl' para o Admin
     const apiBase = process.env.PUBLIC_API_URL || getBaseUrl(req);
     for (const it of items) {
       it.capaUrl = `${apiBase}/api/anuncios/${it._id}/capa?w=480&q=70&format=webp`;
@@ -301,7 +329,7 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 /* ──────────────────────────────────────────────────────────
    Capa de anúncio (foto oficial)
    - suporta ?w ?q ?format
-   - agora SEMPRE redireciona se fonte for http/https (mesmo com w>0)
+   - redireciona se fonte virar URL (http/https/uploads)
    - 304 If-None-Match suportado
 ────────────────────────────────────────────────────────── */
 export const obterCapaAnuncio = async (req, res) => {
@@ -318,11 +346,14 @@ export const obterCapaAnuncio = async (req, res) => {
 
     if (!a) return res.status(404).send('Anúncio não encontrado');
 
-    const fonte = a.fotoCapaUrl ?? (Array.isArray(a.imagens) ? a.imagens[0] : null);
+    const fonteRaw = a.fotoCapaUrl ?? (Array.isArray(a.imagens) ? a.imagens[0] : null);
+    const fonteObj = resolveFonteToUrlOrData(fonteRaw);
+    const fonte = fonteObj.value;
+
     if (!fonte) return res.status(404).send('Capa não encontrada');
 
-    // 👉 se for URL externa, redireciona SEMPRE (evita tentar "redimensionar" URL)
-    if (/^https?:\/\//i.test(fonte)) {
+    // URL (http/https/uploads) → redireciona SEMPRE
+    if (fonteObj.type === 'url') {
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       return res.redirect(302, fonte);
     }
@@ -335,6 +366,7 @@ export const obterCapaAnuncio = async (req, res) => {
       return res.status(304).end();
     }
 
+    // data URI → processa/resize e envia
     return sendImageFromSource(res, fonte, {
       w, q, format,
       cacheId: `capa:${id}:${createdAt}`,
@@ -384,7 +416,6 @@ export const obterAnuncioMeta = async (req, res) => {
     if (!doc) return res.status(404).json({ erro: "Anúncio não encontrado." });
 
     const apiBase = process.env.PUBLIC_API_URL || getBaseUrl(req);
-    // capa leve por padrão na página de detalhes
     doc.capaUrl =
       (doc.fotoCapaUrl && /^https?:\/\//i.test(doc.fotoCapaUrl))
         ? doc.fotoCapaUrl
@@ -400,6 +431,7 @@ export const obterAnuncioMeta = async (req, res) => {
 /* ──────────────────────────────────────────────────────────
    Foto por índice (stream)
    - suporta ?w ?q ?format — ideal p/ thumbs (ex.: w=220)
+   - redireciona se for URL (http/https/uploads)
    - 304 If-None-Match suportado
 ────────────────────────────────────────────────────────── */
 export const obterFotoAnuncioPorIndice = async (req, res) => {
@@ -414,14 +446,17 @@ export const obterFotoAnuncioPorIndice = async (req, res) => {
     const a = await Anuncio.findById(id, { imagens: 1, dataCriacao: 1 }).lean();
     if (!a) return res.status(404).send('Anúncio não encontrado');
 
-    const cand = Array.isArray(a.imagens) ? a.imagens[index] : null;
+    const candRaw = Array.isArray(a.imagens) ? a.imagens[index] : null;
+    const candObj = resolveFonteToUrlOrData(candRaw);
+    const cand = candObj.value;
+
     if (!cand) {
       const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
       return res.redirect(302, `${webBase}/logo.png`);
     }
 
-    // redireciona se origem for http/https
-    if (/^https?:\/\//i.test(cand)) {
+    // URL (http/https/uploads) → redireciona
+    if (candObj.type === 'url') {
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       return res.redirect(302, cand);
     }
@@ -434,6 +469,7 @@ export const obterFotoAnuncioPorIndice = async (req, res) => {
       return res.status(304).end();
     }
 
+    // data URI → processa/resize e envia
     return sendImageFromSource(res, cand, {
       w, q, format,
       cacheId: `foto:${id}:${index}:${createdAt}`,
