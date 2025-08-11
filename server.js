@@ -48,21 +48,19 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// app.options('*', cors(corsOptions)); // habilite se houver preflight bloqueado
 
 /* ──────────────────────────────────────────────────────────
-   Body parsers
+   Body parsers (limite aumentado p/ fotos grandes)
 ────────────────────────────────────────────────────────── */
-app.use(express.json({ limit: '30mb' }));
-app.use(express.urlencoded({ extended: true, limit: '30mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /* ──────────────────────────────────────────────────────────
-   STATIC: /uploads (essencial para capas por filename)
+   STATIC: /uploads (se fotos forem salvas fisicamente)
 ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Serve arquivos físicos da pasta "uploads" (se fotos forem salvas como nomes de arquivo)
 app.use(
   '/uploads',
   express.static(path.join(__dirname, 'uploads'), {
