@@ -15,16 +15,18 @@ import {
 
 const router = express.Router();
 
-// Listagem
+// Listagens
 router.get('/', listarAnuncios);
 router.get('/admin', listarTodosAnunciosAdmin);
 
-// ✅ Endpoints leves (devem vir antes do '/:id')
-router.get('/:id/meta', obterAnuncioMeta);
-router.get('/:id/capa', obterCapaAnuncio);
-router.get('/:id/foto/:idx', obterFotoAnuncioPorIndice);
+// Imagens (sempre declarar ANTES de "/:id")
+router.get('/:id/capa', obterCapaAnuncio);             // capa oficial (suporta ?w ?q ?format)
+router.get('/:id/foto/:idx', obterFotoAnuncioPorIndice); // miniaturas/fotos por índice (idem)
 
-// Detalhe completo (legado)
+// Meta leve (detalhes sem imagens) – ideal para a página de detalhes
+router.get('/:id/meta', obterAnuncioMeta);
+
+// Detalhe completo (mantido p/ compatibilidade)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -34,7 +36,6 @@ router.get('/:id', async (req, res) => {
     const anuncio = await Anuncio.findById(id)
       .lean({ getters: true })
       .maxTimeMS(15000);
-
     if (!anuncio) return res.status(404).json({ mensagem: 'Anúncio não encontrado' });
     res.json(anuncio);
   } catch (erro) {

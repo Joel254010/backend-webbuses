@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 import Anuncio from '../models/Anuncio.js';
 
-// ----------------------
-// Cache simples em memória
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Cache leve de respostas JSON
+────────────────────────────────────────────────────────── */
 const CACHE_TTL = 60_000; // 60s
 const MAX_CACHE = 100;
 const cache = new Map();
@@ -17,14 +17,88 @@ function invalidateListCaches() {
   for (const key of cache.keys()) if (key.startsWith('listar:')) cache.delete(key);
 }
 
-// ----------------------
-// Criar novo anúncio  (CAPA OBRIGATÓRIA)
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Helpers de IMAGEM (resize + cache em memória)
+   - usa sharp se disponível; caso contrário retorna original
+   - aceita query ?w (largura), ?q (qualidade), ?format=webp|jpeg|png|avif
+────────────────────────────────────────────────────────── */
+const IMG_CACHE_TTL = 60 * 60 * 1000; // 1h
+const IMG_CACHE_MAX = 200;
+const imgCache = new Map(); // cacheId|w|q|fmt -> { when, mime, buf }
+
+function imgKey({ cacheId, w, q, format }) {
+  return `${cacheId}|w=${w}|q=${q}|f=${format}`;
+}
+function getImgCache(key) {
+  const hit = imgCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.when > IMG_CACHE_TTL) { imgCache.delete(key); return null; }
+  return hit;
+}
+function setImgCache(key, mime, buf) {
+  if (imgCache.size >= IMG_CACHE_MAX) imgCache.delete(imgCache.keys().next().value);
+  imgCache.set(key, { when: Date.now(), mime, buf });
+}
+
+async function decodeBase64OrDataUri(source) {
+  let mime = 'image/jpeg';
+  let b64  = source || '';
+  const m  = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(b64);
+  if (m) { mime = m[1]; b64 = m[2]; }
+  const buf = Buffer.from(b64, 'base64');
+  return { mime, buf };
+}
+
+async function maybeSharpResize(buf, { w = 0, q = 75, format = 'webp' } = {}) {
+  if (!w || w <= 0) return { mime: 'image/jpeg', buf };
+  let sharp;
+  try { sharp = (await import('sharp')).default; }
+  catch { return { mime: 'image/jpeg', buf }; }
+
+  const fmts = { webp: 'image/webp', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', avif: 'image/avif' };
+  const outMime = fmts[format] || 'image/webp';
+
+  const out = await sharp(buf)
+    .rotate()
+    .resize({ width: w, withoutEnlargement: true })
+    .toFormat(format === 'jpg' ? 'jpeg' : format, { quality: q })
+    .toBuffer();
+
+  return { mime: outMime, buf: out };
+}
+
+async function sendImageFromSource(res, source, {
+  w = 0, q = 75, format = 'webp', cacheId = '', etagBase = ''
+} = {}) {
+  const key = imgKey({ cacheId, w, q, format });
+  const hit = getImgCache(key);
+  if (hit) {
+    res.set('Content-Type', hit.mime);
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    if (etagBase) res.set('ETag', `"${etagBase}-${w}-${q}-${format}"`);
+    res.set('Content-Length', String(hit.buf.length));
+    return res.status(200).send(hit.buf);
+  }
+
+  const { buf: raw } = await decodeBase64OrDataUri(source);
+  const { mime, buf } = await maybeSharpResize(raw, { w, q, format });
+
+  setImgCache(key, mime, buf);
+
+  res.set('Content-Type', mime);
+  res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+  if (etagBase) res.set('ETag', `"${etagBase}-${w}-${q}-${format}"`);
+  res.set('Content-Length', String(buf.length));
+  return res.status(200).send(buf);
+}
+
+/* ──────────────────────────────────────────────────────────
+   Criar novo anúncio  (CAPA OBRIGATÓRIA)
+────────────────────────────────────────────────────────── */
 export const criarAnuncio = async (req, res) => {
   try {
     const novo = new Anuncio(req.body);
 
-    // exige capa: fotoCapaUrl ou imagens[0]
     if (!novo.fotoCapaUrl && !(Array.isArray(novo.imagens) && novo.imagens.length > 0)) {
       return res.status(400).json({ erro: "Foto de capa é obrigatória." });
     }
@@ -40,9 +114,9 @@ export const criarAnuncio = async (req, res) => {
   }
 };
 
-// ----------------------
-// Listar anúncios (Home / Meus Anúncios) — leve
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Listar anúncios (Home / Meus Anúncios) — LEVE
+────────────────────────────────────────────────────────── */
 export const listarAnuncios = async (req, res) => {
   try {
     const page  = Math.max(parseInt(req.query.page)  || 1, 1);
@@ -87,10 +161,10 @@ export const listarAnuncios = async (req, res) => {
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
     const [anuncios, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
-    // SEMPRE usa a rota da capa (garante a foto oficial)
+    // capa leve por padrão (ótimo para cards da Home)
     const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
     for (const a of anuncios) {
-      a.capaUrl = `${apiBase}/api/anuncios/${a._id}/capa`;
+      a.capaUrl = `${apiBase}/api/anuncios/${a._id}/capa?w=480&q=70&format=webp`;
     }
 
     const payload = {
@@ -109,9 +183,9 @@ export const listarAnuncios = async (req, res) => {
   }
 };
 
-// ----------------------
-// Listar TODOS (Admin) — leve por padrão
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Listar TODOS (Admin) — leve por padrão
+────────────────────────────────────────────────────────── */
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
     const page  = Math.max(parseInt(req.query.page)  || 1, 1);
@@ -160,7 +234,6 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
     ];
 
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
-
     const [items, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
     res.set("Cache-Control", "private, max-age=0, must-revalidate");
@@ -175,12 +248,17 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
   }
 };
 
-// ----------------------
-// Capa de anúncio (foto oficial do cadastro)
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Capa de anúncio (foto oficial)
+   - suporta ?w ?q ?format
+────────────────────────────────────────────────────────── */
 export const obterCapaAnuncio = async (req, res) => {
   try {
     const { id } = req.params;
+    const w = Math.max(parseInt(req.query.w || '0', 10) || 0, 0);
+    const q = Math.min(Math.max(parseInt(req.query.q || '75', 10) || 75, 20), 95);
+    const format = (req.query.format || 'webp').toLowerCase();
+
     const a = await Anuncio.findById(
       id,
       { fotoCapaUrl: 1, imagens: { $slice: 1 }, dataCriacao: 1 }
@@ -188,50 +266,30 @@ export const obterCapaAnuncio = async (req, res) => {
 
     if (!a) return res.status(404).send('Anúncio não encontrado');
 
-    // prioriza SEMPRE a "foto oficial"
     const fonte = a.fotoCapaUrl ?? (Array.isArray(a.imagens) ? a.imagens[0] : null);
     if (!fonte) return res.status(404).send('Capa não encontrada');
 
-    // URL http/https → redirect
-    if (/^https?:\/\//i.test(fonte)) {
+    // URL http/https externa → redireciona (não redimensiona)
+    if (/^https?:\/\//i.test(fonte) && !w) {
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       return res.redirect(302, fonte);
     }
 
-    // caminho relativo → monta URL do site público (se aplicável)
-    if (!/^data:/i.test(fonte) && /^[./]?[/a-zA-Z0-9._-]/.test(fonte)) {
-      const webBase = process.env.PUBLIC_WEB_URL || 'https://webbuses.com';
-      const abs = fonte.startsWith('/') ? `${webBase}${fonte}` : `${webBase}/${fonte}`;
-      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-      return res.redirect(302, abs);
-    }
-
-    // data URI → decodifica e envia
-    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(fonte || '');
-    if (m) {
-      const mime = m[1];
-      const buf  = Buffer.from(m[2], 'base64');
-      res.set('Content-Type', mime);
-      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-      if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
-      return res.status(200).send(buf);
-    }
-
-    // base64 “cru” → assume jpeg
-    const buf = Buffer.from(fonte, 'base64');
-    res.set('Content-Type', 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-    if (a.dataCriacao) res.set('ETag', `"capa-${id}-${new Date(a.dataCriacao).getTime()}"`);
-    return res.status(200).send(buf);
+    const createdAt = a?.dataCriacao ? new Date(a.dataCriacao).getTime() : '0';
+    return sendImageFromSource(res, fonte, {
+      w, q, format,
+      cacheId: `capa:${id}:${createdAt}`,
+      etagBase: `capa-${id}-${createdAt}`
+    });
   } catch (erro) {
     console.error('capa erro:', erro);
     return res.status(500).send('Erro ao obter capa');
   }
 };
 
-// ----------------------
-// ✅ META sem imagens (rápido para a página de detalhes)
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   META sem imagens (rápido para a página de detalhes)
+────────────────────────────────────────────────────────── */
 export const obterAnuncioMeta = async (req, res) => {
   try {
     const { id } = req.params;
@@ -267,10 +325,11 @@ export const obterAnuncioMeta = async (req, res) => {
     if (!doc) return res.status(404).json({ erro: "Anúncio não encontrado." });
 
     const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    // capa leve por padrão na página de detalhes
     doc.capaUrl =
       (doc.fotoCapaUrl && /^https?:\/\//i.test(doc.fotoCapaUrl))
         ? doc.fotoCapaUrl
-        : `${apiBase}/api/anuncios/${id}/capa`;
+        : `${apiBase}/api/anuncios/${id}/capa?w=1280&q=75&format=webp`;
 
     res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return res.json(doc);
@@ -279,13 +338,18 @@ export const obterAnuncioMeta = async (req, res) => {
   }
 };
 
-// ----------------------
-// ✅ Foto por índice (stream) — baixa em paralelo
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Foto por índice (stream)
+   - suporta ?w ?q ?format — ideal p/ thumbs (ex.: w=220)
+────────────────────────────────────────────────────────── */
 export const obterFotoAnuncioPorIndice = async (req, res) => {
   try {
     const { id, idx } = req.params;
-    const index = Math.max(parseInt(idx, 10) || 0, 0);
+    const index  = Math.max(parseInt(idx, 10) || 0, 0);
+
+    const w = Math.max(parseInt(req.query.w || '0', 10) || 0, 0);
+    const q = Math.min(Math.max(parseInt(req.query.q || '75', 10) || 75, 20), 95);
+    const format = (req.query.format || 'webp').toLowerCase();
 
     const a = await Anuncio.findById(id, { imagens: 1, dataCriacao: 1 }).lean();
     if (!a) return res.status(404).send('Anúncio não encontrado');
@@ -296,24 +360,20 @@ export const obterFotoAnuncioPorIndice = async (req, res) => {
       return res.redirect(302, `${webBase}/logo.png`);
     }
 
-    let mime = 'image/jpeg';
-    let b64 = cand;
-    const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i.exec(cand);
-    if (m) { mime = m[1]; b64 = m[2]; }
-
-    const buf = Buffer.from(b64, 'base64');
-    res.set('Content-Type', mime);
-    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-    if (a.dataCriacao) res.set('ETag', `"foto-${id}-${index}-${new Date(a.dataCriacao).getTime()}"`);
-    return res.status(200).send(buf);
+    const createdAt = a?.dataCriacao ? new Date(a.dataCriacao).getTime() : '0';
+    return sendImageFromSource(res, cand, {
+      w, q, format,
+      cacheId: `foto:${id}:${index}:${createdAt}`,
+      etagBase: `foto-${id}-${index}-${createdAt}`
+    });
   } catch (erro) {
     return res.status(500).send('Erro ao obter foto');
   }
 };
 
-// ----------------------
-// Atualizações e exclusão
-// ----------------------
+/* ──────────────────────────────────────────────────────────
+   Atualizações e exclusão
+────────────────────────────────────────────────────────── */
 export const atualizarStatusAnuncio = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -336,7 +396,6 @@ export const atualizarAnuncio = async (req, res) => {
     if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length > 0) {
       dados.fotoCapaUrl = dados.imagens[0];
     }
-    // impede ficar sem capa
     if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length === 0) {
       return res.status(400).json({ erro: "Foto de capa é obrigatória." });
     }
