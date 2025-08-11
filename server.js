@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import compression from 'compression';
 import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -26,15 +28,14 @@ app.disable('x-powered-by');
 
 app.use(
   helmet({
-    contentSecurityPolicy: false,        // API JSON
-    crossOriginResourcePolicy: false,    // imagens base64/data-uri
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: false,
   })
 );
 app.use(compression());
 
 /* ──────────────────────────────────────────────────────────
-   CORS (origens configuráveis por env)
-   Ex.: CORS_ORIGINS=https://webbuses.com,https://clickcardbusiness.netlify.app
+   CORS
 ────────────────────────────────────────────────────────── */
 const allowList = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -48,15 +49,17 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+// ❌ REMOVIDO: app.options('*', cors(corsOptions));
+// Se quiser muito explicitar, pode usar: app.options(/(.*)/, cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
-   Body parsers (limite aumentado p/ fotos grandes)
+   Body parsers
 ────────────────────────────────────────────────────────── */
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /* ──────────────────────────────────────────────────────────
-   STATIC: /uploads (se fotos forem salvas fisicamente)
+   STATIC
 ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,21 +74,23 @@ app.use(
 );
 
 /* ──────────────────────────────────────────────────────────
-   Logger simples (útil no Render p/ medir latência real)
+   Logs + Rate limit
 ────────────────────────────────────────────────────────── */
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const ms = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
-  });
-  next();
+app.use(morgan(':date[iso] :method :url -> :status :response-time ms'));
+
+const apiLimiter = rateLimit({
+  windowMs: 2 * 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/healthz',
 });
+app.use('/api', apiLimiter);
 
 /* ──────────────────────────────────────────────────────────
    Healthcheck
 ────────────────────────────────────────────────────────── */
-app.get('/healthz', (req, res) => res.status(200).send('ok'));
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 /* ──────────────────────────────────────────────────────────
    Rotas
@@ -95,24 +100,23 @@ app.use('/api/anunciantes', anuncianteRoutes);
 app.use('/api/curtidas', curtidaRoutes);
 app.use('/preview', previewRoute);
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
 });
 
 /* ──────────────────────────────────────────────────────────
-   404 + Error handler (JSON)
+   404 + Error handler
 ────────────────────────────────────────────────────────── */
-app.use((req, res, next) => {
+app.use((_req, res) => {
   res.status(404).json({ erro: 'Rota não encontrada' });
 });
 
-app.use((err, req, res, next) => {
+app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err);
-  const payload = {
+  res.status(500).json({
     erro: 'Erro interno do servidor',
     detalhes: process.env.NODE_ENV === 'development' ? err.message : undefined,
-  };
-  res.status(500).json(payload);
+  });
 });
 
 /* ──────────────────────────────────────────────────────────
@@ -121,7 +125,7 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 try {
-  await conectarMongoDB(); // Node 20+ suporta top-level await
+  await conectarMongoDB();
   app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
   });
