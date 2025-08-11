@@ -1,0 +1,32 @@
+﻿# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Builds e cache
+dist/
+build/
+coverage/
+.tmp/
+tmp/
+temp/
+
+# Ambiente / segredos / backups
+.env
+.env.*
+backup/
+uploads/
+
+# SO / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Plataformas
+.netlify/
+.vercel/
+render.yaml
