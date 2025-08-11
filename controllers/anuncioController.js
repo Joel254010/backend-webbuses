@@ -1,5 +1,16 @@
+// controllers/anuncioController.js
 import mongoose from 'mongoose';
 import Anuncio from '../models/Anuncio.js';
+
+/* ──────────────────────────────────────────────────────────
+   Utils
+────────────────────────────────────────────────────────── */
+function getBaseUrl(req) {
+  // respeita proxy (Render/Netlify)
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const host = req.get('x-forwarded-host') || req.get('host');
+  return `${proto}://${host}`;
+}
 
 /* ──────────────────────────────────────────────────────────
    Cache leve de respostas JSON
@@ -119,8 +130,10 @@ export const criarAnuncio = async (req, res) => {
 ────────────────────────────────────────────────────────── */
 export const listarAnuncios = async (req, res) => {
   try {
-    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const pageRaw  = parseInt(req.query.page);
+    const limitRaw = parseInt(req.query.limit);
+    const page  = Math.max(Number.isFinite(pageRaw) ? pageRaw : 1, 1);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 20, 1), 50);
     const skip  = (page - 1) * limit;
 
     const filtro = { status: "aprovado" };
@@ -162,7 +175,7 @@ export const listarAnuncios = async (req, res) => {
     const [anuncios, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
 
     // capa leve por padrão (ótimo para cards da Home)
-    const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    const apiBase = process.env.PUBLIC_API_URL || getBaseUrl(req);
     for (const a of anuncios) {
       a.capaUrl = `${apiBase}/api/anuncios/${a._id}/capa?w=480&q=70&format=webp`;
     }
@@ -184,18 +197,33 @@ export const listarAnuncios = async (req, res) => {
 };
 
 /* ──────────────────────────────────────────────────────────
-   Listar TODOS (Admin) — leve por padrão
+   Listar TODOS (Admin) — leve por padrão + capa garantida
+   (⚠️ era aqui que a capa sumia)
 ────────────────────────────────────────────────────────── */
 export const listarTodosAnunciosAdmin = async (req, res) => {
   try {
-    const page  = Math.max(parseInt(req.query.page)  || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100);
+    const pageRaw  = parseInt(req.query.page);
+    const limitRaw = parseInt(req.query.limit);
+    const page  = Math.max(Number.isFinite(pageRaw) ? pageRaw : 1, 1);
+    const limit = Math.min(Math.max(Number.isFinite(limitRaw) ? limitRaw : 50, 1), 100);
     const skip  = (page - 1) * limit;
     const full  = (req.query.full === '1');
 
     const filtro = {};
     if (req.query.status)       filtro.status = req.query.status;
     if (req.query.anuncianteId) filtro.anunciante = req.query.anuncianteId;
+    if (req.query.tipoModelo)   filtro.tipoModelo = req.query.tipoModelo;
+    if (req.query.search) {
+      const rx = new RegExp(req.query.search, 'i');
+      filtro.$or = [
+        { nomeAnunciante: rx },
+        { email: rx },
+        { telefone: rx },
+        { 'localizacao.cidade': rx },
+        { 'localizacao.estado': rx },
+        { tipoModelo: rx },
+      ];
+    }
 
     const projectionBase = {
       nomeAnunciante: 1,
@@ -223,7 +251,23 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 
     const projectStage = full
       ? { ...projectionBase, descricao: 1, imagens: 1 }
-      : { ...projectionBase, imagensCount: { $size: { $ifNull: ["$imagens", []] } } };
+      : {
+          ...projectionBase,
+          imagensCount: { $size: { $ifNull: ["$imagens", []] } },
+          // calcula 'temCapa' sem expor o array 'imagens'
+          temCapa: {
+            $cond: {
+              if: {
+                $or: [
+                  { $gt: [{ $strLenCP: { $ifNull: ["$fotoCapaUrl", ""] } }, 0] },
+                  { $gt: [{ $size: { $ifNull: ["$imagens", []] } }, 0] }
+                ]
+              },
+              then: true,
+              else: false
+            }
+          }
+        };
 
     const pipeline = [
       { $match: filtro },
@@ -235,6 +279,12 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 
     const agg = Anuncio.aggregate(pipeline).allowDiskUse(true).option({ maxTimeMS: 15000 });
     const [items, total] = await Promise.all([ agg.exec(), Anuncio.countDocuments(filtro) ]);
+
+    // 🔧 Garantimos 'capaUrl' para o Admin (foi o ponto que sumiu)
+    const apiBase = process.env.PUBLIC_API_URL || getBaseUrl(req);
+    for (const it of items) {
+      it.capaUrl = `${apiBase}/api/anuncios/${it._id}/capa?w=480&q=70&format=webp`;
+    }
 
     res.set("Cache-Control", "private, max-age=0, must-revalidate");
     return res.json({
@@ -251,6 +301,8 @@ export const listarTodosAnunciosAdmin = async (req, res) => {
 /* ──────────────────────────────────────────────────────────
    Capa de anúncio (foto oficial)
    - suporta ?w ?q ?format
+   - agora SEMPRE redireciona se fonte for http/https (mesmo com w>0)
+   - 304 If-None-Match suportado
 ────────────────────────────────────────────────────────── */
 export const obterCapaAnuncio = async (req, res) => {
   try {
@@ -269,17 +321,24 @@ export const obterCapaAnuncio = async (req, res) => {
     const fonte = a.fotoCapaUrl ?? (Array.isArray(a.imagens) ? a.imagens[0] : null);
     if (!fonte) return res.status(404).send('Capa não encontrada');
 
-    // URL http/https externa → redireciona (não redimensiona)
-    if (/^https?:\/\//i.test(fonte) && !w) {
+    // 👉 se for URL externa, redireciona SEMPRE (evita tentar "redimensionar" URL)
+    if (/^https?:\/\//i.test(fonte)) {
       res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
       return res.redirect(302, fonte);
     }
 
     const createdAt = a?.dataCriacao ? new Date(a.dataCriacao).getTime() : '0';
+    const etagBase = `capa-${id}-${createdAt}`;
+    const expectedEtag = `"${etagBase}-${w}-${q}-${format}"`;
+    if (req.headers['if-none-match'] === expectedEtag) {
+      res.set('ETag', expectedEtag);
+      return res.status(304).end();
+    }
+
     return sendImageFromSource(res, fonte, {
       w, q, format,
       cacheId: `capa:${id}:${createdAt}`,
-      etagBase: `capa-${id}-${createdAt}`
+      etagBase
     });
   } catch (erro) {
     console.error('capa erro:', erro);
@@ -324,7 +383,7 @@ export const obterAnuncioMeta = async (req, res) => {
 
     if (!doc) return res.status(404).json({ erro: "Anúncio não encontrado." });
 
-    const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    const apiBase = process.env.PUBLIC_API_URL || getBaseUrl(req);
     // capa leve por padrão na página de detalhes
     doc.capaUrl =
       (doc.fotoCapaUrl && /^https?:\/\//i.test(doc.fotoCapaUrl))
@@ -341,6 +400,7 @@ export const obterAnuncioMeta = async (req, res) => {
 /* ──────────────────────────────────────────────────────────
    Foto por índice (stream)
    - suporta ?w ?q ?format — ideal p/ thumbs (ex.: w=220)
+   - 304 If-None-Match suportado
 ────────────────────────────────────────────────────────── */
 export const obterFotoAnuncioPorIndice = async (req, res) => {
   try {
@@ -360,11 +420,24 @@ export const obterFotoAnuncioPorIndice = async (req, res) => {
       return res.redirect(302, `${webBase}/logo.png`);
     }
 
+    // redireciona se origem for http/https
+    if (/^https?:\/\//i.test(cand)) {
+      res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      return res.redirect(302, cand);
+    }
+
     const createdAt = a?.dataCriacao ? new Date(a.dataCriacao).getTime() : '0';
+    const etagBase = `foto-${id}-${index}-${createdAt}`;
+    const expectedEtag = `"${etagBase}-${w}-${q}-${format}"`;
+    if (req.headers['if-none-match'] === expectedEtag) {
+      res.set('ETag', expectedEtag);
+      return res.status(304).end();
+    }
+
     return sendImageFromSource(res, cand, {
       w, q, format,
       cacheId: `foto:${id}:${index}:${createdAt}`,
-      etagBase: `foto-${id}-${index}-${createdAt}`
+      etagBase
     });
   } catch (erro) {
     return res.status(500).send('Erro ao obter foto');
@@ -393,11 +466,14 @@ export const atualizarAnuncio = async (req, res) => {
   const { id } = req.params;
   const dados = req.body || {};
   try {
-    if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length > 0) {
-      dados.fotoCapaUrl = dados.imagens[0];
-    }
-    if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length === 0) {
-      return res.status(400).json({ erro: "Foto de capa é obrigatória." });
+    // Só aplica regra de capa se o campo 'imagens' vier na atualização
+    if (Object.prototype.hasOwnProperty.call(dados, 'imagens')) {
+      if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length > 0) {
+        dados.fotoCapaUrl = dados.imagens[0];
+      }
+      if (!dados.fotoCapaUrl && Array.isArray(dados.imagens) && dados.imagens.length === 0) {
+        return res.status(400).json({ erro: "Foto de capa é obrigatória." });
+      }
     }
 
     const atualizado = await Anuncio.findByIdAndUpdate(

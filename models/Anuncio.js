@@ -1,41 +1,63 @@
-import mongoose from 'mongoose';
+// models/Anuncio.js
+import mongoose from "mongoose";
 
-const anuncioSchema = new mongoose.Schema({
-  nomeAnunciante: { type: String, required: true },
-  anunciante: String,
-  email: String,
-  telefone: String,
-  telefoneBruto: String,
+const anuncioSchema = new mongoose.Schema(
+  {
+    // ── Dados do anunciante ────────────────────────────────────────────────
+    nomeAnunciante: { type: String, required: true },
+    anunciante: String,
+    email: String,
+    telefone: String,
+    telefoneBruto: String,
 
-  tipoModelo: String,
-  fabricanteCarroceria: String,
-  modeloCarroceria: String,
-  fabricanteChassis: String,
-  modeloChassis: String,
-  kilometragem: String,
-  lugares: String,
-  cor: String,
-  anoModelo: String,
-  valor: { type: Number, min: 0 },
-  descricao: { type: String, maxlength: 5000 },
+    // ── Especificações do veículo ─────────────────────────────────────────
+    tipoModelo: String,
+    fabricanteCarroceria: String,
+    modeloCarroceria: String,
+    fabricanteChassis: String,
+    modeloChassis: String,
+    kilometragem: String,
+    lugares: String,
+    cor: String,
+    anoModelo: String,
+    valor: { type: Number, min: 0 },
+    descricao: { type: String, maxlength: 5000 },
 
-  fotoCapaUrl: String,
-  imagens: [String],
+    // ── Imagens ───────────────────────────────────────────────────────────
+    // Mantemos o nome já usado no projeto
+    fotoCapaUrl: String,
+    // Thumb opcional para performance (se no futuro gerar miniatura)
+    fotoCapaThumb: String,
+    // Galeria (base64 ou URLs)
+    imagens: [String],
 
-  localizacao: { cidade: String, estado: String },
+    // ── Localização ───────────────────────────────────────────────────────
+    localizacao: { cidade: String, estado: String },
 
-  status: { type: String, default: 'pendente' },
-  dataCadastro: String,
-  dataEnvio: String,
-  dataCriacao: { type: Date, default: Date.now }
-});
+    // ── Status / Datas ────────────────────────────────────────────────────
+    status: { type: String, default: "pendente", index: true },
+    dataCadastro: String,
+    dataEnvio: String,
+    dataCriacao: { type: Date, default: Date.now },
+  },
+  {
+    // Não usamos timestamps automáticos porque já existe dataCriacao
+    // timestamps: true,
+  }
+);
 
-// Índices
+// ── Índices ───────────────────────────────────────────────────────────────
 anuncioSchema.index({ status: 1, dataCriacao: -1 });
 anuncioSchema.index({ anunciante: 1, status: 1, dataCriacao: -1 });
 anuncioSchema.index({ tipoModelo: 1, status: 1, dataCriacao: -1 });
+// Acesso recente geral
+anuncioSchema.index({ dataCriacao: -1 });
+// Busca leve por cidade/estado (apoia filtros no admin/home)
+anuncioSchema.index({ "localizacao.cidade": 1, "localizacao.estado": 1 });
 
-anuncioSchema.virtual('slugModelo').get(function () {
+// ── Virtuals úteis ───────────────────────────────────────────────────────
+// slug do modelo para rotas/amigáveis
+anuncioSchema.virtual("slugModelo").get(function () {
   const raw = (this.tipoModelo || "").toLowerCase();
   if (raw.includes("utilit")) return "utilitarios";
   if (raw.includes("micro")) return "micro-onibus";
@@ -44,12 +66,30 @@ anuncioSchema.virtual('slugModelo').get(function () {
   if (raw.includes("urbano")) return "onibus-urbano";
   if (raw.includes("low")) return "lowdriver";
   if (raw.includes("double")) return "doubledecker";
-  return raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-           .replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  return raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
 });
 
+// Capa com fallback: thumb → fotoCapaUrl → primeiro item de imagens
+anuncioSchema.virtual("capa").get(function () {
+  return (
+    this.fotoCapaThumb ||
+    this.fotoCapaUrl ||
+    (Array.isArray(this.imagens) && this.imagens.length > 0 ? this.imagens[0] : null)
+  );
+});
+
+// Compatibilidade com front-ends que esperam 'fotoCapa'
+anuncioSchema.virtual("fotoCapa").get(function () {
+  return this.capa;
+});
+
+// Incluir virtuals no retorno JSON/Objeto (para APIs e .lean())
 anuncioSchema.set("toObject", { virtuals: true });
 anuncioSchema.set("toJSON", { virtuals: true });
 
-const Anuncio = mongoose.model('Anuncio', anuncioSchema);
+const Anuncio = mongoose.model("Anuncio", anuncioSchema);
 export default Anuncio;
