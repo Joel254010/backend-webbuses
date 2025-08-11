@@ -14,6 +14,8 @@ import anuncioRoutes from './routes/anuncioRoutes.js';
 import anuncianteRoutes from './routes/anuncianteRoutes.js';
 import curtidaRoutes from './routes/curtidaRoutes.js';
 import previewRoute from './routes/previewRoute.js';
+// Alias /admin → mesma listagem de anúncios
+import { listarAnuncios } from './controllers/anuncioController.js';
 
 dotenv.config();
 
@@ -49,8 +51,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// ❌ REMOVIDO: app.options('*', cors(corsOptions));
-// Se quiser muito explicitar, pode usar: app.options(/(.*)/, cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
    Body parsers
@@ -59,7 +59,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /* ──────────────────────────────────────────────────────────
-   STATIC
+   STATIC (mantido para compat)
 ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,6 +99,9 @@ app.use('/api/anuncios', anuncioRoutes);
 app.use('/api/anunciantes', anuncianteRoutes);
 app.use('/api/curtidas', curtidaRoutes);
 app.use('/preview', previewRoute);
+
+// 🔁 Alias para o Painel Admin que chama /admin?page=&limit=
+app.get('/admin', listarAnuncios);
 
 app.get('/', (_req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
