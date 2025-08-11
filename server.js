@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import compression from 'compression';
 import helmet from 'helmet';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 import conectarMongoDB from './config/db.js';
 import anuncioRoutes from './routes/anuncioRoutes.js';
@@ -46,8 +48,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Se notar preflight bloqueando em algum provedor, reabilite a linha abaixo:
-// app.options('*', cors(corsOptions));
+// app.options('*', cors(corsOptions)); // habilite se houver preflight bloqueado
 
 /* ──────────────────────────────────────────────────────────
    Body parsers
@@ -56,13 +57,28 @@ app.use(express.json({ limit: '30mb' }));
 app.use(express.urlencoded({ extended: true, limit: '30mb' }));
 
 /* ──────────────────────────────────────────────────────────
+   STATIC: /uploads (essencial para capas por filename)
+────────────────────────────────────────────────────────── */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve arquivos físicos da pasta "uploads" (se fotos forem salvas como nomes de arquivo)
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, 'uploads'), {
+    maxAge: '7d',
+    etag: true,
+    fallthrough: true,
+  })
+);
+
+/* ──────────────────────────────────────────────────────────
    Logger simples (útil no Render p/ medir latência real)
 ────────────────────────────────────────────────────────── */
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const ms = Date.now() - start;
-    // Log enxuto: método, rota, status, tempo
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
   });
   next();
@@ -94,7 +110,6 @@ app.use((req, res, next) => {
 
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
-  // evita vazar stack em produção
   const payload = {
     erro: 'Erro interno do servidor',
     detalhes: process.env.NODE_ENV === 'development' ? err.message : undefined,
@@ -108,7 +123,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 try {
-  // ✅ Conecta apenas uma vez (antes de iniciar o servidor)
   await conectarMongoDB(); // Node 20+ suporta top-level await
   app.listen(PORT, () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
