@@ -14,7 +14,6 @@ import anuncioRoutes from './routes/anuncioRoutes.js';
 import anuncianteRoutes from './routes/anuncianteRoutes.js';
 import curtidaRoutes from './routes/curtidaRoutes.js';
 import previewRoute from './routes/previewRoute.js';
-// Alias /admin → mesma listagem de anúncios
 import { listarAnuncios } from './controllers/anuncioController.js';
 
 dotenv.config();
@@ -51,8 +50,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// ✅ atende preflight (OPTIONS) para qualquer rota/domínio permitido
-app.options('*', cors(corsOptions));
+// Express 5: use '(.*)' em vez de '*'
+app.options('(.*)', cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
    Body parsers
@@ -85,7 +84,7 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  // ✅ não limita preflight e healthcheck
+  // não limita preflight e healthcheck
   skip: (req) => req.method === 'OPTIONS' || req.path === '/healthz',
 });
 app.use('/api', apiLimiter);
@@ -103,7 +102,7 @@ app.use('/api/anunciantes', anuncianteRoutes);
 app.use('/api/curtidas', curtidaRoutes);
 app.use('/preview', previewRoute);
 
-// 🔁 Alias para o Painel Admin que chama /admin?page=&limit=
+// Alias para o Painel Admin
 app.get('/admin', listarAnuncios);
 
 app.get('/', (_req, res) => {
