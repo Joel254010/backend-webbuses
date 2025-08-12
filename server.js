@@ -50,8 +50,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Express 5: use '(.*)' em vez de '*'
-app.options('(.*)', cors(corsOptions));
+// ✅ Express 5: use RegExp para catch-all no preflight
+app.options(/.*/, cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
    Body parsers
@@ -60,7 +60,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /* ──────────────────────────────────────────────────────────
-   STATIC (mantido para compat)
+   STATIC (compat)
 ────────────────────────────────────────────────────────── */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,7 +84,7 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  // não limita preflight e healthcheck
+  // ❗ não limite preflight e healthcheck
   skip: (req) => req.method === 'OPTIONS' || req.path === '/healthz',
 });
 app.use('/api', apiLimiter);
@@ -102,7 +102,7 @@ app.use('/api/anunciantes', anuncianteRoutes);
 app.use('/api/curtidas', curtidaRoutes);
 app.use('/preview', previewRoute);
 
-// Alias para o Painel Admin
+// 🔁 Alias para o Painel Admin (/admin?page=&limit=)
 app.get('/admin', listarAnuncios);
 
 app.get('/', (_req, res) => {
