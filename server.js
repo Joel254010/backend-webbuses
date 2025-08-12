@@ -14,7 +14,7 @@ import anuncioRoutes from './routes/anuncioRoutes.js';
 import anuncianteRoutes from './routes/anuncianteRoutes.js';
 import curtidaRoutes from './routes/curtidaRoutes.js';
 import previewRoute from './routes/previewRoute.js';
-import { listarAnuncios } from './controllers/anuncioController.js';
+import Anuncio from './models/Anuncio.js'; // <- usamos no alias /admin
 
 dotenv.config();
 
@@ -50,7 +50,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// ✅ Express 5: use RegExp para catch-all no preflight
+// Express 5: catch-all com RegExp p/ preflight
 app.options(/.*/, cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  // ❗ não limite preflight e healthcheck
+  // não limita preflight e healthcheck
   skip: (req) => req.method === 'OPTIONS' || req.path === '/healthz',
 });
 app.use('/api', apiLimiter);
@@ -95,15 +95,61 @@ app.use('/api', apiLimiter);
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 /* ──────────────────────────────────────────────────────────
-   Rotas
+   Rotas API
 ────────────────────────────────────────────────────────── */
 app.use('/api/anuncios', anuncioRoutes);
 app.use('/api/anunciantes', anuncianteRoutes);
 app.use('/api/curtidas', curtidaRoutes);
 app.use('/preview', previewRoute);
 
-// 🔁 Alias para o Painel Admin (/admin?page=&limit=)
-app.get('/admin', listarAnuncios);
+/* ──────────────────────────────────────────────────────────
+   Alias ADMIN (sem /api): lista paginada e enxuta
+   GET /admin?page=1&limit=24
+────────────────────────────────────────────────────────── */
+app.get('/admin', async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || '24', 10), 1), 100);
+    const skip = (page - 1) * limit;
+
+    // projeção: só o que o painel precisa
+    const projection = {
+      nomeAnunciante: 1,
+      anunciante: 1,
+      email: 1,
+      telefone: 1,
+      telefoneBruto: 1,
+      fabricanteCarroceria: 1,
+      modeloCarroceria: 1,
+      tipoModelo: 1,
+      valor: 1,
+      status: 1,
+      fotoCapaUrl: 1,
+      fotoCapaThumb: 1,
+      imagens: 1,              // usado pra contar
+      dataEnvio: 1,
+      localizacao: 1,
+    };
+
+    const data = await Anuncio.find({}, projection)
+      .sort({ dataCriacao: -1 }) // mais novos primeiro
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // garante capa para o front (thumb > url)
+    const normalized = data.map((a) => ({
+      ...a,
+      capaUrl: a.fotoCapaThumb || a.fotoCapaUrl || null,
+      imagensCount: Array.isArray(a.imagens) ? a.imagens.length : 0,
+    }));
+
+    res.json({ page, limit, count: normalized.length, data: normalized });
+  } catch (err) {
+    console.error('Erro /admin:', err);
+    res.status(500).json({ mensagem: 'Erro ao listar anúncios' });
+  }
+});
 
 app.get('/', (_req, res) => {
   res.send('🚍 Backend Web Buses rodando com sucesso!');
