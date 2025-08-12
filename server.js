@@ -38,19 +38,33 @@ app.use(compression());
 /* ──────────────────────────────────────────────────────────
    CORS
 ────────────────────────────────────────────────────────── */
-const allowList = (process.env.CORS_ORIGINS || '')
+const rawAllow = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
-const corsOptions = {
-  origin: allowList.length ? allowList : true,
-  credentials: true,
-  maxAge: 86400,
-};
+const allowList = rawAllow.map(o => o.replace(/\/$/, '')); // normaliza sem barra final
+const useWildcard = allowList.length === 0;
+
+// Quando sem allowlist, libera geral (sem credenciais) -> Access-Control-Allow-Origin: *
+const corsOptions = useWildcard
+  ? { origin: '*', credentials: false, maxAge: 86400 }
+  : {
+      origin(origin, cb) {
+        if (!origin) return cb(null, true); // ferramentas tipo curl/healthz
+        const o = origin.replace(/\/$/, '');
+        const ok = allowList.includes(o);
+        if (!ok) {
+          console.warn('[CORS] origin bloqueado:', origin, 'allowList:', allowList);
+        }
+        cb(null, ok);
+      },
+      credentials: true,
+      maxAge: 86400,
+    };
 
 app.use(cors(corsOptions));
-// Express 5: catch-all com RegExp p/ preflight
+// Express 5: catch-all com RegExp
 app.options(/.*/, cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
