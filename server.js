@@ -51,6 +51,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+// ✅ atende preflight (OPTIONS) para qualquer rota/domínio permitido
+app.options('*', cors(corsOptions));
 
 /* ──────────────────────────────────────────────────────────
    Body parsers
@@ -83,7 +85,8 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === '/healthz',
+  // ✅ não limita preflight e healthcheck
+  skip: (req) => req.method === 'OPTIONS' || req.path === '/healthz',
 });
 app.use('/api', apiLimiter);
 
