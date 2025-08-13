@@ -1,3 +1,4 @@
+// controllers/anuncioController.js
 import Anuncio from "../models/Anuncio.js";
 import cloudinary from "../config/cloudinary.js";
 import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload.js";
@@ -101,7 +102,6 @@ export const criarAnuncio = async (req, res) => {
 
     // Se não tem capa, usa a primeira imagem
     if (!capaUrl && imagensUrls.length > 0) capaUrl = imagensUrls[0];
-
     if (!capaUrl) {
       return res.status(400).json({ mensagem: "Foto de capa é obrigatória." });
     }
@@ -160,14 +160,7 @@ export const criarAnuncio = async (req, res) => {
 /** Listar anúncios (rápido; suporta paginação e filtros por querystring) */
 export const listarAnuncios = async (req, res) => {
   try {
-    const {
-      page,
-      limit,
-      status,
-      tipoModelo,
-      cidade,
-      estado
-    } = req.query;
+    const { page, limit, status, tipoModelo, cidade, estado } = req.query;
 
     const filtro = {};
     if (status) filtro.status = status;
@@ -199,7 +192,9 @@ export const listarAnuncios = async (req, res) => {
       quilometragemAtual: 1
     };
 
-    const query = Anuncio.find(filtro, projection).sort({ dataEnvio: -1, _id: -1 }).lean();
+    const query = Anuncio.find(filtro, projection)
+      .sort({ dataEnvio: -1, _id: -1 })
+      .lean();
 
     // Paginação opcional: ?page=1&limit=12
     let total;
@@ -237,7 +232,7 @@ export const listarAnuncios = async (req, res) => {
   }
 };
 
-/** Buscar por ID */
+/** Buscar por ID (detalhe completo) */
 export const buscarAnuncioPorId = async (req, res) => {
   try {
     const anuncio = await Anuncio.findById(req.params.id).lean();
@@ -292,5 +287,126 @@ export const excluirAnuncio = async (req, res) => {
   } catch (erro) {
     console.error("Erro ao excluir anúncio:", erro);
     return res.status(500).json({ mensagem: "Erro ao excluir anúncio" });
+  }
+};
+
+/* ========================= NOVAS AÇÕES (para as rotas) ========================== */
+
+/** GET /anuncios/:id/meta — resumo leve + KM como texto cru */
+export const buscarAnuncioMeta = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await Anuncio.findById(id)
+      .select(
+        [
+          "fabricanteCarroceria",
+          "modeloCarroceria",
+          "fabricanteChassis",
+          "modeloChassis",
+          "tipoModelo",
+          "valor",
+          "nomeAnunciante",
+          "telefone",
+          "telefoneBruto",
+          "email",
+          "localizacao",
+          "anoModelo",
+          "cor",
+          "lugares",
+          "status",
+          // KM (todas as variantes)
+          "kilometragem",
+          "kilometragemAtual",
+          "km",
+          "rodagem",
+          "quilometragem",
+          "quilometragemAtual",
+          // imagens para contagem
+          "imagens",
+          "fotoCapaUrl",
+          "fotoCapaThumb",
+          "capaUrl"
+        ].join(" ")
+      )
+      .lean();
+
+    if (!doc) return res.status(404).json({ erro: "Anúncio não encontrado" });
+
+    const kmLabel = firstNonEmpty(
+      doc.kilometragem,
+      doc.kilometragemAtual,
+      doc.km,
+      doc.rodagem,
+      doc.quilometragem,
+      doc.quilometragemAtual
+    );
+
+    const imagensCount = Array.isArray(doc.imagens) ? doc.imagens.length : 0;
+
+    return res.json({
+      _id: doc._id,
+      fabricanteCarroceria: doc.fabricanteCarroceria,
+      modeloCarroceria: doc.modeloCarroceria,
+      fabricanteChassis: doc.fabricanteChassis,
+      modeloChassis: doc.modeloChassis,
+      tipoModelo: doc.tipoModelo,
+      valor: doc.valor,
+      nomeAnunciante: doc.nomeAnunciante,
+      telefone: doc.telefone,
+      telefoneBruto: doc.telefoneBruto,
+      email: doc.email,
+      localizacao: doc.localizacao,
+      anoModelo: doc.anoModelo,
+      cor: doc.cor,
+      lugares: doc.lugares,
+      status: doc.status,
+      kmLabel,
+      imagensCount
+    });
+  } catch (e) {
+    console.error("buscarAnuncioMeta erro:", e);
+    res.status(500).json({ erro: "Falha ao carregar meta" });
+  }
+};
+
+/** GET /anuncios/:id/capa — redireciona para a URL da capa */
+export const obterCapaDoAnuncio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await Anuncio.findById(id)
+      .select("fotoCapaThumb fotoCapaUrl capaUrl imagens")
+      .lean();
+
+    if (!doc) return res.status(404).end();
+
+    const url =
+      firstNonEmpty(doc.fotoCapaThumb, doc.fotoCapaUrl, doc.capaUrl) ||
+      (Array.isArray(doc.imagens) ? doc.imagens[0] : "");
+
+    if (!url) return res.status(404).end();
+    return res.redirect(url);
+  } catch (e) {
+    console.error("obterCapaDoAnuncio erro:", e);
+    return res.status(404).end();
+  }
+};
+
+/** GET /anuncios/:id/foto/:idx — redireciona para a URL da foto por índice */
+export const obterFotoDoAnuncio = async (req, res) => {
+  try {
+    const { id, idx } = req.params;
+    const i = Number(idx);
+    if (!Number.isInteger(i) || i < 0) return res.status(400).end();
+
+    const doc = await Anuncio.findById(id).select("imagens").lean();
+    if (!doc || !Array.isArray(doc.imagens)) return res.status(404).end();
+
+    const url = doc.imagens[i];
+    if (!url) return res.status(404).end();
+
+    return res.redirect(url);
+  } catch (e) {
+    console.error("obterFotoDoAnuncio erro:", e);
+    return res.status(404).end();
   }
 };
