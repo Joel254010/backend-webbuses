@@ -31,6 +31,16 @@ const parseValor = (v) => {
   return Number.isNaN(parsed) ? undefined : parsed;
 };
 
+// [KM] pega o primeiro campo de KM que vier preenchido (texto cru, sem formatar)
+const firstNonEmpty = (...vals) => {
+  for (const v of vals) {
+    if (v === null || v === undefined) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+};
+
 /** Criar anúncio (suporta multipart + JSON) */
 export const criarAnuncio = async (req, res) => {
   try {
@@ -44,7 +54,7 @@ export const criarAnuncio = async (req, res) => {
       modeloCarroceria,
       fabricanteChassis,
       modeloChassis,
-      kilometragem,
+      kilometragem, // [KM] texto livre do anunciante
       lugares,
       cor,
       anoModelo,
@@ -118,7 +128,7 @@ export const criarAnuncio = async (req, res) => {
       modeloCarroceria,
       fabricanteChassis,
       modeloChassis,
-      kilometragem,
+      kilometragem,          // [KM] salva exatamente o texto digitado
       lugares,
       cor,
       anoModelo,
@@ -179,7 +189,14 @@ export const listarAnuncios = async (req, res) => {
       fotoCapaUrl: 1,
       fotoCapaThumb: 1,
       dataEnvio: 1,
-      localizacao: 1
+      localizacao: 1,
+      // [KM] incluir TODAS as variantes como texto cru
+      kilometragem: 1,
+      kilometragemAtual: 1,
+      km: 1,
+      rodagem: 1,
+      quilometragem: 1,
+      quilometragemAtual: 1
     };
 
     const query = Anuncio.find(filtro, projection).sort({ dataEnvio: -1, _id: -1 }).lean();
@@ -198,7 +215,21 @@ export const listarAnuncios = async (req, res) => {
       res.set("X-Total-Count", String(total || 0));
     }
 
-    const anuncios = await query.exec();
+    const docs = await query.exec();
+
+    // [KM] adiciona kmLabel (texto cru) para conveniência no frontend
+    const anuncios = docs.map((d) => ({
+      ...d,
+      kmLabel: firstNonEmpty(
+        d.kilometragem,
+        d.kilometragemAtual,
+        d.km,
+        d.rodagem,
+        d.quilometragem,
+        d.quilometragemAtual
+      )
+    }));
+
     return res.json(anuncios);
   } catch (erro) {
     console.error("Erro ao listar anúncios:", erro);
