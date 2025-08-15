@@ -11,6 +11,8 @@ import {
   buscarAnuncioMeta,
   obterCapaDoAnuncio,
   obterFotoDoAnuncio,
+  // 👇 NOVO: edição de dados (sem fotos)
+  atualizarAnuncio,
 } from "../controllers/anuncioController.js";
 import { upload } from "../middlewares/upload.js"; // ← Multer em memória
 
@@ -38,6 +40,9 @@ router.get("/", listarAnuncios);
 router.get("/:id/meta", buscarAnuncioMeta);        // resumo leve p/ cards
 router.get("/:id/capa", obterCapaDoAnuncio);       // redireciona p/ URL da capa
 router.get("/:id/foto/:idx", obterFotoDoAnuncio);  // redireciona p/ URL da foto idx
+
+// ✏️ Editar dados do anúncio (sem fotos)
+router.put("/:id", atualizarAnuncio);
 
 // Detalhe completo
 router.get("/:id", buscarAnuncioPorId);
