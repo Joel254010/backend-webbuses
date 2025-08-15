@@ -244,6 +244,83 @@ export const buscarAnuncioPorId = async (req, res) => {
   }
 };
 
+/** ✏️ Atualizar dados do anúncio (sem fotos) */
+export const atualizarAnuncio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body || {};
+
+    // Campos permitidos para edição pelo anunciante
+    const allowed = [
+      "nomeAnunciante",
+      "anunciante",
+      "email",
+      "telefone",
+      "telefoneBruto",
+      "fabricanteCarroceria",
+      "modeloCarroceria",
+      "fabricanteChassis",
+      "modeloChassis",
+      "kilometragem",         // km texto livre
+      "lugares",
+      "cor",
+      "anoModelo",
+      "localizacao",          // string "Cidade, Estado" OU { cidade, estado }
+      "valor",
+      "descricao",
+      "tipoModelo",
+    ];
+
+    const upd = {};
+    for (const k of allowed) {
+      if (Object.prototype.hasOwnProperty.call(body, k)) {
+        upd[k] = body[k];
+      }
+    }
+
+    // Valor pode vir "R$ 150.000,00"
+    if (upd.valor !== undefined) {
+      upd.valor = parseValor(upd.valor);
+    }
+
+    // Normaliza localização
+    if (typeof upd.localizacao === "string") {
+      const [cidade, estado] = upd.localizacao.split(",").map((s) => s?.trim());
+      upd.localizacao = { cidade: cidade || "-", estado: estado || "-" };
+    } else if (upd.localizacao && typeof upd.localizacao === "object") {
+      upd.localizacao = {
+        cidade: upd.localizacao.cidade || "-",
+        estado: upd.localizacao.estado || "-",
+      };
+    }
+
+    // Regra de negócio: edição volta para análise
+    upd.status = "pendente";
+    upd.dataEnvio = new Date();
+
+    // NÃO permitir troca de fotos por aqui
+    delete upd.fotoCapaUrl;
+    delete upd.fotoCapaThumb;
+    delete upd.fotoCapaPublicId;
+    delete upd.imagens;
+    delete upd.imagensPublicIds;
+
+    const atualizado = await Anuncio.findByIdAndUpdate(id, upd, {
+      new: true,
+      runValidators: true,
+    }).lean();
+
+    if (!atualizado) {
+      return res.status(404).json({ mensagem: "Anúncio não encontrado" });
+    }
+
+    return res.json(atualizado);
+  } catch (erro) {
+    console.error("Erro ao atualizar anúncio:", erro);
+    return res.status(500).json({ mensagem: "Erro ao atualizar anúncio" });
+  }
+};
+
 /** Atualizar status */
 export const atualizarStatusAnuncio = async (req, res) => {
   try {
